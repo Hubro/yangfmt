@@ -1,14 +1,7 @@
-#![allow(dead_code, unused_imports, unused_variables, unused_macros)]
-
-use crate::lexing::TokenType;
-use crate::parsing::{
-    parse, BlockNode, LeafNode, Node, NodeHelpers, NodeValue, RootNode, StatementKeyword,
-};
-
-use std::io::{stdin, stdout, Read};
+use crate::parsing::{parse, BlockNode, Node, NodeHelpers, NodeValue, StatementKeyword};
 
 pub enum Indent {
-    Tab,
+    // Tab,
     Spaces(u8),
 }
 
@@ -44,7 +37,7 @@ pub fn format_yang<T: std::io::Write>(
     buffer: &[u8],
     config: &FormatConfig,
 ) -> Result<(), Error> {
-    let mut tree = parse(&buffer)?;
+    let mut tree = parse(buffer)?;
 
     process_statements(&mut tree.children);
 
@@ -63,7 +56,7 @@ pub fn format_yang<T: std::io::Write>(
 /// Applies auto-formatting rules recursively to the input statement list
 fn process_statements(statements: &mut Vec<Node>) {
     for ref mut node in statements.as_mut_slice() {
-        if let Node::BlockNode(ref mut block_node) = node {
+        if let Node::Block(ref mut block_node) = node {
             add_block_line_breaks(block_node);
 
             // Recurse into the block node's children
@@ -88,7 +81,7 @@ fn process_statements(statements: &mut Vec<Node>) {
 ///     }
 ///
 fn add_block_line_breaks(node: &mut BlockNode) {
-    if node.children.len() > 0 {
+    if !node.children.is_empty() {
         if !node.children[0].is_line_break() {
             node.children.insert(0, Node::LineBreak(String::from("\n")));
         }
@@ -195,9 +188,9 @@ fn write_node<T: std::io::Write>(
         ($depth:expr) => {
             for _ in 0..$depth {
                 match config.indent {
-                    Indent::Tab => {
-                        write!(out, "\t")?;
-                    }
+                    // Indent::Tab => {
+                    //     write!(out, "\t")?;
+                    // }
                     Indent::Spaces(spaces) => {
                         for _ in 0..spaces {
                             write!(out, " ")?;
@@ -247,7 +240,7 @@ fn write_node<T: std::io::Write>(
     }
 
     match node {
-        Node::LeafNode(node) => {
+        Node::Leaf(node) => {
             write_keyword!(&node.keyword);
             write!(out, " ")?;
 
@@ -258,7 +251,7 @@ fn write_node<T: std::io::Write>(
             write!(out, ";")?;
         }
 
-        Node::BlockNode(node) => {
+        Node::Block(node) => {
             write_keyword!(&node.keyword);
             write!(out, " ")?;
 
@@ -282,7 +275,7 @@ fn write_node<T: std::io::Write>(
 
                     // If there is no line break after the "{" then add a space before the next
                     // token
-                    if !prev_child.is_some() {
+                    if prev_child.is_none() {
                         write!(out, " ")?;
                     }
 
@@ -293,7 +286,7 @@ fn write_node<T: std::io::Write>(
                     }
                 }
 
-                write_node(out, &child, config, depth + 1)?;
+                write_node(out, child, config, depth + 1)?;
 
                 prev_child = Some(child);
             }
@@ -309,7 +302,7 @@ fn write_node<T: std::io::Write>(
             write!(out, "}}")?;
         }
 
-        Node::CommentNode(text) => {
+        Node::Comment(text) => {
             write!(out, "{text}")?;
         }
 
@@ -319,15 +312,6 @@ fn write_node<T: std::io::Write>(
     }
 
     Ok(())
-}
-
-/// Formats the input file into a String
-fn format_yang_str(buffer: &[u8], config: &FormatConfig) -> Result<String, Error> {
-    let mut output: Vec<u8> = vec![];
-
-    format_yang(&mut output, buffer, config)?;
-
-    Ok(String::from_utf8(output).expect("Invalid UTF-8 in input file"))
 }
 
 #[cfg(test)]
@@ -340,6 +324,15 @@ mod test {
         let mut text = textwrap::dedent(text).trim().to_string();
         text.push('\n');
         text
+    }
+
+    /// Formats the input file into a String
+    fn format_yang_str(buffer: &[u8], config: &FormatConfig) -> Result<String, Error> {
+        let mut output: Vec<u8> = vec![];
+
+        format_yang(&mut output, buffer, config)?;
+
+        Ok(String::from_utf8(output).expect("Invalid UTF-8 in input file"))
     }
 
     #[test]
@@ -367,7 +360,7 @@ mod test {
             line_length: 80,
         };
 
-        write_node(&mut out, &module_node, &config, 0).expect("Formatting failed");
+        write_node(&mut out, module_node, &config, 0).expect("Formatting failed");
         writeln!(out).unwrap();
 
         assert_eq!(

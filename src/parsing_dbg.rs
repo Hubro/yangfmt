@@ -1,5 +1,4 @@
 use std::fmt::{self, Display, Formatter};
-use std::io::Write;
 
 use crate::parsing::{Node, NodeValue, RootNode, StatementKeyword};
 
@@ -28,11 +27,11 @@ fn format_node(out: &mut Formatter, node: &Node, depth: u8) -> Result<(), fmt::E
     indent!();
 
     match node {
-        Node::LeafNode(node) => match node.value {
+        Node::Leaf(node) => match node.value {
             Some(ref value) => write!(out, "({} {})", node.keyword, value)?,
             _ => write!(out, "({})", node.keyword)?,
         },
-        Node::BlockNode(node) => {
+        Node::Block(node) => {
             match node.value {
                 Some(ref value) => write!(out, "({} {}", node.keyword, value)?,
                 None => write!(out, "({}", node.keyword)?,
@@ -47,7 +46,7 @@ fn format_node(out: &mut Formatter, node: &Node, depth: u8) -> Result<(), fmt::E
         Node::LineBreak(text) => {
             write!(out, "[LineBreak {text:?}]")?;
         }
-        Node::CommentNode(_) => {
+        Node::Comment(_) => {
             write!(out, "(comment)")?;
         }
     }

@@ -24,7 +24,6 @@ const DOUBLE_QUOTE: u8 = 34;
 const SINGLE_QUOTE: u8 = 39;
 const ASTERISK: u8 = 42;
 const PLUS: u8 = 43;
-const DASH: u8 = 45;
 const SLASH: u8 = 47;
 const SEMICOLON: u8 = 59;
 const BACKSLASH: u8 = 92;
@@ -60,17 +59,11 @@ pub struct Token<'a> {
 
 impl Token<'_> {
     pub fn is_whitespace(&self) -> bool {
-        match self.token_type {
-            TokenType::WhiteSpace => true,
-            _ => false,
-        }
+        matches!(self.token_type, TokenType::WhiteSpace)
     }
 
     pub fn is_line_break(&self) -> bool {
-        match self.token_type {
-            TokenType::LineBreak => true,
-            _ => false,
-        }
+        matches!(self.token_type, TokenType::LineBreak)
     }
 }
 
@@ -369,21 +362,6 @@ fn scan_other(buffer: &[u8], cursor: usize) -> Option<usize> {
     } else {
         None
     }
-}
-
-/// Reads until a non-whitespace character is found, returns the new cursor position
-fn skip_whitespace(buffer: &[u8], cursor: usize) -> usize {
-    let mut cursor = cursor;
-
-    while let Some(char) = buffer.get(cursor) {
-        if [SPACE, TAB, CARRIAGE_RETURN, NEWLINE].contains(char) {
-            cursor += 1;
-        } else {
-            break;
-        }
-    }
-
-    cursor
 }
 
 /// Returns true if this character should delimit a token

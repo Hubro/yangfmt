@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_imports, unused_variables, unused_macros)]
-
 #[macro_use]
 extern crate lazy_static;
 
@@ -11,7 +9,7 @@ mod parsing;
 #[cfg(test)]
 mod parsing_dbg;
 
-use std::io::{stdin, stdout, Read, Write};
+use std::io::{stdin, stdout, Read};
 
 use clap::Parser;
 
@@ -55,7 +53,7 @@ fn main() {
     }
 
     if let Err(error) = format_yang(&mut stdout().lock(), &buffer, &config) {
-        exit_with_error(&error.to_string());
+        exit_with_error(error);
     }
 }
 
@@ -77,7 +75,7 @@ fn read_file<T: AsRef<str>>(buffer: &mut Vec<u8>, file_path: T) {
 }
 
 fn exit_with_error<T: std::fmt::Display>(msg: T) -> ! {
-    writeln!(std::io::stderr(), "Error: {}", msg).unwrap();
+    eprintln!("Error: {}", msg);
     std::process::exit(1);
 }
 

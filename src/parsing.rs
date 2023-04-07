@@ -32,10 +32,10 @@ impl StatementKeyword {
 
 #[derive(Debug)]
 pub enum Node {
-    BlockNode(BlockNode),
-    LeafNode(LeafNode),
+    Block(BlockNode),
+    Leaf(LeafNode),
     LineBreak(String),
-    CommentNode(String),
+    Comment(String),
 }
 
 pub trait NodeHelpers {
@@ -45,19 +45,11 @@ pub trait NodeHelpers {
 
 impl NodeHelpers for Node {
     fn is_line_break(&self) -> bool {
-        if let Node::LineBreak(ref text) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Node::LineBreak(_))
     }
 
     fn is_comment(&self) -> bool {
-        if let Node::CommentNode(ref text) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Node::Comment(_))
     }
 }
 
@@ -183,7 +175,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                 statements.push(Node::LineBreak(token.text.to_string()))
                             }
                             TokenType::Comment => {
-                                statements.push(Node::CommentNode(token.text.to_string()))
+                                statements.push(Node::Comment(token.text.to_string()))
                             }
                             TokenType::ClosingCurlyBrace => {
                                 return Ok(statements);
@@ -206,7 +198,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
 
                             TokenType::OpenCurlyBrace => {
                                 // Recurse!
-                                statements.push(Node::BlockNode(BlockNode {
+                                statements.push(Node::Block(BlockNode {
                                     keyword,
                                     value: None,
                                     children: parse_statements(tokens)?,
@@ -216,7 +208,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                             }
 
                             TokenType::SemiColon => {
-                                statements.push(Node::LeafNode(LeafNode {
+                                statements.push(Node::Leaf(LeafNode {
                                     keyword,
                                     value: None,
                                 }));
@@ -243,7 +235,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
 
                             TokenType::OpenCurlyBrace => {
                                 // Recurse!
-                                statements.push(Node::BlockNode(BlockNode {
+                                statements.push(Node::Block(BlockNode {
                                     keyword,
                                     value: Some(value),
                                     children: parse_statements(tokens)?,
@@ -262,11 +254,11 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                         ))
                                     }
                                 };
-                                state = ParseState::StringConcat(keyword, vec![value.into()], true);
+                                state = ParseState::StringConcat(keyword, vec![value], true);
                             }
 
                             TokenType::SemiColon => {
-                                statements.push(Node::LeafNode(LeafNode {
+                                statements.push(Node::Leaf(LeafNode {
                                     keyword,
                                     value: Some(value),
                                 }));
@@ -314,7 +306,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                     state = ParseState::StringConcat(keyword, values, true);
                                 }
                                 TokenType::SemiColon => {
-                                    statements.push(Node::LeafNode(LeafNode {
+                                    statements.push(Node::Leaf(LeafNode {
                                         keyword,
                                         value: Some(NodeValue::StringConcatenation(values)),
                                     }));
@@ -345,7 +337,6 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::parsing_dbg;
     use pretty_assertions::assert_eq;
 
     fn dedent(text: &str) -> String {
