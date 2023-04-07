@@ -128,7 +128,7 @@ fn trim_line_breaks(statements: &mut Vec<Node>) {
         }
     }
 
-    if statements.last().is_line_break() {
+    if statements.last().is_line_break() && statements.len() > 1 {
         while statements.get(statements.len() - 2).is_line_break() {
             statements.remove(statements.len() - 2);
         }
@@ -265,17 +265,21 @@ fn write_node<T: std::io::Write>(
                     let kwlen = $keyword.text().len();
                     let pad = if kwlen >= 2 { kwlen - 2 } else { 0 };
 
+                    // The first string gets written on the same line as the keywords
                     write!(out, "{}", strings[0])?;
 
-                    for ref string in strings {
-                        writeln!(out)?;
-                        indent!(depth);
+                    // The rest get displayed on new lines, padded to align with the first string
+                    if let Some(rest) = strings.get(1..) {
+                        for ref string in rest {
+                            writeln!(out)?;
+                            indent!(depth);
 
-                        for _ in 0..pad {
-                            write!(out, " ")?
+                            for _ in 0..pad {
+                                write!(out, " ")?
+                            }
+
+                            write!(out, " + {}", string)?;
                         }
-
-                        write!(out, " + {}", string)?;
                     }
                 }
             };
@@ -433,18 +437,30 @@ mod test {
                 //
                 module foo {
 
-                bar 'testing' ;
-                foo 123.45    ;
+                bar      testing  ;
+                foo      123.45   ;
 
+                revision 2022-02-03 {
+                }
                     revision 2022-02-02 { description "qwerty"; }
 
-                description 'These "quotes" should remain single';
+                //
+                // Some string formatting tests
+                //
+
+                test "I am not affected";
+                test 'I am converted';
+                test 'These "quotes" should remain single';
 
 
                 pattern '((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}'+'((([0-9a-fA-F]{0,4}:)?(:|[0-9a-fA-F]{0,4}))|'
                 + '(((25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])\.){3}'
                  + '(25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])))'
                 + '(%[\p{N}\p{L}]+)?';
+
+                pattern
+                "foo" + 'bar'
+                + 'baz';
 
                 }"#,
             )
@@ -463,21 +479,32 @@ mod test {
                 // Comments outside the module block should be fine
                 //
                 module foo {
-                    bar "testing";
+                    bar testing;
                     foo 123.45;
 
+                    revision 2022-02-03 {
+                    }
                     revision 2022-02-02 {
                         description "qwerty";
                     }
 
-                    description 'These "quotes" should remain single';
+                    //
+                    // Some string formatting tests
+                    //
+
+                    test "I am not affected";
+                    test "I am converted";
+                    test 'These "quotes" should remain single';
 
                     pattern "((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}"
-                          + "((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}"
                           + "((([0-9a-fA-F]{0,4}:)?(:|[0-9a-fA-F]{0,4}))|"
                           + "(((25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])\.){3}"
                           + "(25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])))"
                           + "(%[\p{N}\p{L}]+)?";
+
+                    pattern "foo"
+                          + "bar"
+                          + "baz";
                 }
                 "#
             ),
