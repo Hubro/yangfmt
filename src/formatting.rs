@@ -62,6 +62,8 @@ fn process_statements(statements: &mut Vec<Node>) {
             // Recurse into the block node's children
             process_statements(&mut block_node.children);
         }
+
+        convert_to_double_quotes(node);
     }
 
     trim_line_breaks(statements);
@@ -168,6 +170,47 @@ fn squash_line_breaks(statements: &mut Vec<Node>) {
         }
 
         i += 1;
+    }
+}
+
+/// Converts single-quoted strings to double quoted strings
+///
+/// The only exception is if the string contains double-quotes.
+///
+fn convert_to_double_quotes(node: &mut Node) {
+    let is_single_quoted = |str: &str| str.bytes().next().map_or(false, |byte| byte == b'\'');
+
+    let contains_quote = |str: &str| {
+        let mut content = str.chars();
+        content.next();
+        content.next_back();
+
+        let content = content.as_str();
+
+        content.contains('\"')
+    };
+
+    let set_double_quotes = |str: &mut String| {
+        str.replace_range(0..1, "\"");
+        str.replace_range(str.len() - 1.., "\"");
+    };
+
+    if let Some(NodeValue::String(string)) = node.node_value_mut() {
+        if !is_single_quoted(string) || contains_quote(string) {
+            return;
+        }
+
+        set_double_quotes(string);
+    }
+
+    if let Some(NodeValue::StringConcatenation(strings)) = node.node_value_mut() {
+        for string in strings {
+            if !is_single_quoted(string) || contains_quote(string) {
+                continue;
+            }
+
+            set_double_quotes(string);
+        }
     }
 }
 
@@ -390,11 +433,12 @@ mod test {
                 //
                 module foo {
 
-                bar "testing" ;
+                bar 'testing' ;
                 foo 123.45    ;
 
                     revision 2022-02-02 { description "qwerty"; }
 
+                description 'These "quotes" should remain single';
 
 
                 pattern '((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}'+'((([0-9a-fA-F]{0,4}:)?(:|[0-9a-fA-F]{0,4}))|'
@@ -426,12 +470,14 @@ mod test {
                         description "qwerty";
                     }
 
-                    pattern '((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}'
-                          + '((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}'
-                          + '((([0-9a-fA-F]{0,4}:)?(:|[0-9a-fA-F]{0,4}))|'
-                          + '(((25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])\.){3}'
-                          + '(25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])))'
-                          + '(%[\p{N}\p{L}]+)?';
+                    description 'These "quotes" should remain single';
+
+                    pattern "((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}"
+                          + "((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}"
+                          + "((([0-9a-fA-F]{0,4}:)?(:|[0-9a-fA-F]{0,4}))|"
+                          + "(((25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])\.){3}"
+                          + "(25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])))"
+                          + "(%[\p{N}\p{L}]+)?";
                 }
                 "#
             ),

@@ -41,6 +41,12 @@ pub enum Node {
 pub trait NodeHelpers {
     fn is_line_break(&self) -> bool;
     fn is_comment(&self) -> bool;
+
+    /// Retrieves a mutable reference to the node value, if any
+    fn node_value_mut(&mut self) -> Option<&mut NodeValue>;
+
+    /// Retrieves a mutable reference to the node value's text, if any
+    fn value_string_mut(&mut self) -> Option<&mut String>;
 }
 
 impl NodeHelpers for Node {
@@ -51,6 +57,35 @@ impl NodeHelpers for Node {
     fn is_comment(&self) -> bool {
         matches!(self, Node::Comment(_))
     }
+
+    fn node_value_mut(&mut self) -> Option<&mut NodeValue> {
+        match self {
+            Node::Leaf(node) => node.value.as_mut(),
+            Node::Block(node) => node.value.as_mut(),
+            _ => None,
+        }
+    }
+
+    /// Retrieves a mutable reference to the node value text, if any
+    fn value_string_mut(&mut self) -> Option<&mut String> {
+        let value = match self {
+            Node::Leaf(node) => &mut node.value,
+            Node::Block(node) => &mut node.value,
+            _ => return None,
+        };
+
+        if let Some(ref mut value) = value {
+            match value {
+                NodeValue::String(ref mut text) => Some(text),
+                NodeValue::Date(ref mut text) => Some(text),
+                NodeValue::Number(ref mut text) => Some(text),
+                NodeValue::Other(ref mut text) => Some(text),
+                NodeValue::StringConcatenation(_) => None,
+            }
+        } else {
+            None
+        }
+    }
 }
 
 impl NodeHelpers for Option<&Node> {
@@ -59,6 +94,12 @@ impl NodeHelpers for Option<&Node> {
     }
     fn is_comment(&self) -> bool {
         self.map_or(false, |node| node.is_comment())
+    }
+    fn node_value_mut(&mut self) -> Option<&mut NodeValue> {
+        unimplemented!("Cannot implement on a non-mutable ref")
+    }
+    fn value_string_mut(&mut self) -> Option<&mut String> {
+        unimplemented!("Cannot implement on a non-mutable ref")
     }
 }
 
