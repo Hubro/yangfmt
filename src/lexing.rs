@@ -75,7 +75,7 @@ impl DebugTokenExt for Token<'_> {
     /// Format the tokens into a nice, human readable string for troubleshooting purposes
     fn human_readable_string(&self) -> String {
         format!(
-            "{:<20} {:<15} {:?}\n",
+            "{:<20} {:<15} {:?}",
             format!("{:?}", self.token_type),
             format!("{} -> {}", self.span.0, self.span.1),
             self.text,
@@ -90,6 +90,7 @@ impl DebugTokenExt for Vec<Token<'_>> {
 
         for token in self {
             output.push_str(&token.human_readable_string());
+            output.push('\n');
         }
 
         output
@@ -338,7 +339,7 @@ fn scan_line_break(buffer: &[u8], cursor: usize) -> Option<usize> {
     if buffer.get(cursor).map_or(false, |c| *c == b'\n') {
         Some(1)
     } else if buffer.get(cursor).map_or(false, |c| *c == b'\r')
-        && buffer.get(cursor).map_or(false, |c| *c == b'\n')
+        && buffer.get(cursor + 1).map_or(false, |c| *c == b'\n')
     {
         Some(2)
     } else {
@@ -573,6 +574,20 @@ mod test {
                 "#
             ),
             tokens.human_readable_string(),
+        );
+    }
+
+    #[test]
+    fn test_line_breaks() {
+        let buffer = vec![b'\r', b'\n'];
+
+        assert_eq!(
+            vec![Token {
+                token_type: TokenType::LineBreak,
+                span: (0, 1),
+                text: &"\r\n",
+            }],
+            scan(&buffer).collect::<Vec<_>>(),
         );
     }
 }
