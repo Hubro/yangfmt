@@ -5,15 +5,14 @@ mod constants;
 mod formatting;
 mod lexing;
 mod parsing;
-
-#[cfg(test)]
 mod parsing_dbg;
 
-use std::io::{stdin, stdout, Read};
+use std::io::{stdin, stdout, Read, Write};
 
 use clap::Parser;
 
 use crate::formatting::{format_yang, FormatConfig, Indent};
+use crate::lexing::DebugTokenExt;
 
 /// YANG auto-formatter, inspired by the consistent style of IETF YANG models
 #[derive(Parser, Debug)]
@@ -26,6 +25,14 @@ struct Args {
     /// Number of spaces used for indentation
     #[arg(short, long, default_value_t = 2)]
     tab_width: u8,
+
+    /// (debugging) Show raw lexer output rather than auto-formatting
+    #[arg(long, default_value_t = false)]
+    lex: bool,
+
+    /// (debugging) Show the syntax tree rather than auto-formatting
+    #[arg(long, default_value_t = false)]
+    tree: bool,
 
     /// Path of the file to format (leave empty or use "-" for STDIN)
     file_path: Option<String>,
@@ -52,7 +59,31 @@ fn main() {
         None => read_stdin(&mut buffer),
     }
 
-    if let Err(error) = format_yang(&mut stdout().lock(), &buffer, &config) {
+    let mut stdout = stdout().lock();
+
+    if args.lex {
+        for token in crate::lexing::scan(&buffer) {
+            writeln!(stdout, "{}", token.human_readable_string())
+                .or_error("Failed to write to STDOUT");
+        }
+
+        return;
+    }
+
+    if args.tree {
+        let tree = match crate::parsing::parse(&buffer) {
+            Ok(tree) => tree,
+            Err(error) => exit_with_error(format!("Failed to parse input file: {error}")),
+        };
+
+        if let Err(error) = writeln!(stdout, "{}", tree) {
+            exit_with_error(format!("Failed to format tree: {error}"));
+        }
+
+        return;
+    }
+
+    if let Err(error) = format_yang(&mut stdout, &buffer, &config) {
         exit_with_error(error);
     }
 }
