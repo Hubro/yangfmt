@@ -27,18 +27,25 @@ fn format_node(out: &mut Formatter, node: &Node, depth: u8) -> Result<(), fmt::E
     indent!();
 
     match node {
-        Node::Leaf(node) => match node.value {
-            Some(ref value) => write!(out, "({} {})", node.keyword, value)?,
-            _ => write!(out, "({})", node.keyword)?,
-        },
-        Node::Block(node) => {
-            match node.value {
-                Some(ref value) => write!(out, "({} {}", node.keyword, value)?,
-                None => write!(out, "({}", node.keyword)?,
+        Node::Statement(statement) => {
+            write!(out, "({}", statement.keyword)?;
+
+            for _ in statement.keyword_comments.as_slice() {
+                write!(out, " <comment>")?;
             }
 
-            for node in node.children.iter() {
-                format_node(out, node, depth + 1)?;
+            if let Some(ref value) = statement.value {
+                write!(out, " {}", value)?;
+            }
+
+            for _ in statement.value_comments.as_slice() {
+                write!(out, " <comment>")?;
+            }
+
+            if !statement.children.is_empty() {
+                for node in statement.children.iter() {
+                    format_node(out, node, depth + 1)?;
+                }
             }
 
             write!(out, ")")?;

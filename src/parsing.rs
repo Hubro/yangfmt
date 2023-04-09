@@ -32,8 +32,7 @@ impl StatementKeyword {
 
 #[derive(Debug)]
 pub enum Node {
-    Block(BlockNode),
-    Leaf(LeafNode),
+    Statement(Statement),
     LineBreak(String),
     Comment(String),
 }
@@ -60,8 +59,7 @@ impl NodeHelpers for Node {
 
     fn node_value_mut(&mut self) -> Option<&mut NodeValue> {
         match self {
-            Node::Leaf(node) => node.value.as_mut(),
-            Node::Block(node) => node.value.as_mut(),
+            Node::Statement(statement) => statement.value.as_mut(),
             _ => None,
         }
     }
@@ -69,8 +67,7 @@ impl NodeHelpers for Node {
     /// Retrieves a mutable reference to the node value text, if any
     fn value_string_mut(&mut self) -> Option<&mut String> {
         let value = match self {
-            Node::Leaf(node) => &mut node.value,
-            Node::Block(node) => &mut node.value,
+            Node::Statement(statement) => &mut statement.value,
             _ => return None,
         };
 
@@ -109,16 +106,12 @@ pub struct RootNode {
 }
 
 #[derive(Debug)]
-pub struct BlockNode {
+pub struct Statement {
     pub keyword: StatementKeyword,
+    pub keyword_comments: Vec<String>, // Comment(s) between the statement keyword and value
     pub value: Option<NodeValue>,
+    pub value_comments: Vec<String>, // Comment(s) between the value and block
     pub children: Vec<Node>,
-}
-
-#[derive(Debug)]
-pub struct LeafNode {
-    pub keyword: StatementKeyword,
-    pub value: Option<NodeValue>,
 }
 
 /// The value part of a statement
@@ -192,8 +185,8 @@ pub fn parse(buffer: &[u8]) -> Result<RootNode, String> {
 
 enum ParseState {
     Clean,
-    GotKeyword(StatementKeyword),
-    GotValue(StatementKeyword, NodeValue),
+    GotKeyword(StatementKeyword, Vec<String>),
+    GotValue(StatementKeyword, Vec<String>, NodeValue, Vec<String>),
     StringConcat(StatementKeyword, Vec<String>, bool),
 }
 
@@ -221,27 +214,37 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                             TokenType::ClosingCurlyBrace => {
                                 return Ok(statements);
                             }
-                            TokenType::Other => state = ParseState::GotKeyword(token.into()),
+                            TokenType::Other => {
+                                state = ParseState::GotKeyword(token.into(), vec![])
+                            }
                             _ => return Err(format!("Unexpected token: {:?}", token)),
                         }
                     }
 
-                    ParseState::GotKeyword(keyword) => {
+                    ParseState::GotKeyword(keyword, mut keyword_comments) => {
                         match token.token_type {
                             TokenType::WhiteSpace => {
                                 // Ignore whitespace
-                                state = ParseState::GotKeyword(keyword);
+                                state = ParseState::GotKeyword(keyword, keyword_comments);
                             }
+
                             TokenType::LineBreak => {
                                 statements.push(Node::LineBreak(token.text.to_string()));
-                                state = ParseState::GotKeyword(keyword);
+                                state = ParseState::GotKeyword(keyword, keyword_comments);
+                            }
+
+                            TokenType::Comment => {
+                                keyword_comments.push(token.text.to_string());
+                                state = ParseState::GotKeyword(keyword, keyword_comments);
                             }
 
                             TokenType::OpenCurlyBrace => {
                                 // Recurse!
-                                statements.push(Node::Block(BlockNode {
+                                statements.push(Node::Statement(Statement {
                                     keyword,
+                                    keyword_comments,
                                     value: None,
+                                    value_comments: vec![],
                                     children: parse_statements(tokens)?,
                                 }));
 
@@ -249,36 +252,66 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                             }
 
                             TokenType::SemiColon => {
-                                statements.push(Node::Leaf(LeafNode {
+                                statements.push(Node::Statement(Statement {
                                     keyword,
+                                    keyword_comments,
                                     value: None,
+                                    value_comments: vec![],
+                                    children: vec![],
                                 }));
 
                                 state = ParseState::Clean;
                             }
 
                             _ => {
-                                state = ParseState::GotValue(keyword, token.into());
+                                state = ParseState::GotValue(
+                                    keyword,
+                                    keyword_comments,
+                                    token.into(),
+                                    vec![],
+                                );
                             }
                         }
                     }
 
-                    ParseState::GotValue(keyword, value) => {
+                    ParseState::GotValue(keyword, keyword_comments, value, mut value_comments) => {
                         match token.token_type {
                             TokenType::WhiteSpace => {
                                 // Ignore whitespace
-                                state = ParseState::GotValue(keyword, value);
+                                state = ParseState::GotValue(
+                                    keyword,
+                                    keyword_comments,
+                                    value,
+                                    value_comments,
+                                );
                             }
                             TokenType::LineBreak => {
                                 statements.push(Node::LineBreak(token.text.to_string()));
-                                state = ParseState::GotValue(keyword, value);
+                                state = ParseState::GotValue(
+                                    keyword,
+                                    keyword_comments,
+                                    value,
+                                    value_comments,
+                                );
+                            }
+
+                            TokenType::Comment => {
+                                value_comments.push(token.text.to_string());
+                                state = ParseState::GotValue(
+                                    keyword,
+                                    keyword_comments,
+                                    value,
+                                    value_comments,
+                                );
                             }
 
                             TokenType::OpenCurlyBrace => {
                                 // Recurse!
-                                statements.push(Node::Block(BlockNode {
+                                statements.push(Node::Statement(Statement {
                                     keyword,
+                                    keyword_comments,
                                     value: Some(value),
+                                    value_comments,
                                     children: parse_statements(tokens)?,
                                 }));
 
@@ -299,9 +332,12 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                             }
 
                             TokenType::SemiColon => {
-                                statements.push(Node::Leaf(LeafNode {
+                                statements.push(Node::Statement(Statement {
                                     keyword,
+                                    keyword_comments,
                                     value: Some(value),
+                                    value_comments,
+                                    children: vec![],
                                 }));
 
                                 state = ParseState::Clean;
@@ -347,9 +383,12 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                     state = ParseState::StringConcat(keyword, values, true);
                                 }
                                 TokenType::SemiColon => {
-                                    statements.push(Node::Leaf(LeafNode {
+                                    statements.push(Node::Statement(Statement {
                                         keyword,
+                                        keyword_comments: vec![],
                                         value: Some(NodeValue::StringConcatenation(values)),
+                                        value_comments: vec![],
+                                        children: vec![],
                                     }));
                                     state = ParseState::Clean;
                                 }
@@ -386,73 +425,95 @@ mod test {
         text
     }
 
-    #[test]
-    fn smoke_test() {
-        let buffer: Vec<u8> = dedent(
-            r#"
-             /*
-              * This is a block comment
-              */
+    macro_rules! test_parse {
+        ($test_name:ident, $input:expr, $expected_output:expr) => {
+            #[test]
+            fn $test_name() {
+                let buffer: Vec<u8> = dedent($input).bytes().collect();
+                let tree = parse(&buffer).expect("Failed to parse YANG");
 
-             module test {
-                 yang-version 1;
-                 namespace "https://github.com/Hubro/yangparse";
-                 description 'A small smoke test to make sure basic lexing works';
-
-                 revision 2018-12-03 {
-                     // I'm a comment!
-                     description
-                       "A multi-line string starting in an indented line
-
-                        This is an idiomatic way to format large strings
-                        in YANG models";
-                 }
-
-                 ext:omg-no-value;
-
-                 number 12.34;
-             }
-             "#,
-        )
-        .bytes()
-        .collect();
-
-        let tree = parse(&buffer).expect("Failed to parse YANG");
-
-        assert_eq!(
-            dedent(
-                r#"
-                (root
-                  (comment)
-                  [LineBreak "\n"]
-                  [LineBreak "\n"]
-                  (Keyword "module" Other
-                    [LineBreak "\n"]
-                    (Keyword "yang-version" Number)
-                    [LineBreak "\n"]
-                    (Keyword "namespace" String)
-                    [LineBreak "\n"]
-                    (Keyword "description" String)
-                    [LineBreak "\n"]
-                    [LineBreak "\n"]
-                    (Keyword "revision" Date
-                      [LineBreak "\n"]
-                      (comment)
-                      [LineBreak "\n"]
-                      [LineBreak "\n"]
-                      (Keyword "description" String)
-                      [LineBreak "\n"])
-                    [LineBreak "\n"]
-                    [LineBreak "\n"]
-                    (ExtensionKeyword "ext:omg-no-value")
-                    [LineBreak "\n"]
-                    [LineBreak "\n"]
-                    (INVALID "number" Number)
-                    [LineBreak "\n"])
-                  [LineBreak "\n"])
-                "#
-            ),
-            tree.to_string()
-        );
+                assert_eq!(dedent($expected_output), tree.to_string());
+            }
+        };
     }
+
+    test_parse!(
+        smoke_test,
+        // Input
+        r#"
+        /*
+         * This is a block comment
+         */
+
+        module test {
+            yang-version 1;
+            namespace "https://github.com/Hubro/yangparse";
+            description 'A small smoke test to make sure basic lexing works';
+
+            revision 2018-12-03 {
+                // I'm a comment!
+                description
+                  "A multi-line string starting in an indented line
+
+                   This is an idiomatic way to format large strings
+                   in YANG models";
+            }
+
+            ext:omg-no-value;
+
+            number 12.34;
+        }
+        "#,
+        // Expected output
+        r#"
+        (root
+          (comment)
+          [LineBreak "\n"]
+          [LineBreak "\n"]
+          (Keyword "module" Other
+            [LineBreak "\n"]
+            (Keyword "yang-version" Number)
+            [LineBreak "\n"]
+            (Keyword "namespace" String)
+            [LineBreak "\n"]
+            (Keyword "description" String)
+            [LineBreak "\n"]
+            [LineBreak "\n"]
+            (Keyword "revision" Date
+              [LineBreak "\n"]
+              (comment)
+              [LineBreak "\n"]
+              [LineBreak "\n"]
+              (Keyword "description" String)
+              [LineBreak "\n"])
+            [LineBreak "\n"]
+            [LineBreak "\n"]
+            (ExtensionKeyword "ext:omg-no-value")
+            [LineBreak "\n"]
+            [LineBreak "\n"]
+            (INVALID "number" Number)
+            [LineBreak "\n"])
+          [LineBreak "\n"])
+        "#
+    );
+
+    test_parse!(
+        really_try_to_break_shit_with_awful_comments,
+        // Input
+        r#"
+        module   /*Why god, why*/  /* NO */ foo   // Why are you doing this
+        /* Ewwwwww */{// WHY THOUGH
+        }// Some of these comment locations have actually been spotted in the wild
+        "#,
+        // Expected output
+        r#"
+        (root
+          [LineBreak "\n"]
+          (Keyword "module" <comment> <comment> Other <comment> <comment>
+            (comment)
+            [LineBreak "\n"])
+          (comment)
+          [LineBreak "\n"])
+        "#
+    );
 }

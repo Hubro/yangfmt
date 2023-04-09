@@ -1,4 +1,4 @@
-use crate::parsing::{parse, BlockNode, Node, NodeHelpers, NodeValue, StatementKeyword};
+use crate::parsing::{parse, Node, NodeHelpers, NodeValue, Statement, StatementKeyword};
 
 pub enum Indent {
     // Tab,
@@ -56,11 +56,13 @@ pub fn format_yang<T: std::io::Write>(
 /// Applies auto-formatting rules recursively to the input statement list
 fn process_statements(statements: &mut Vec<Node>) {
     for ref mut node in statements.as_mut_slice() {
-        if let Node::Block(ref mut block_node) = node {
-            add_block_line_breaks(block_node);
+        if let Node::Statement(ref mut statement) = node {
+            add_block_line_breaks(statement);
 
             // Recurse into the block node's children
-            process_statements(&mut block_node.children);
+            if !statement.children.is_empty() {
+                process_statements(&mut statement.children);
+            }
         }
 
         convert_to_double_quotes(node);
@@ -68,6 +70,7 @@ fn process_statements(statements: &mut Vec<Node>) {
 
     trim_line_breaks(statements);
     squash_line_breaks(statements);
+    relocate_pre_block_comments(statements);
 }
 
 /// Adds line breaks at the start of- and after every block node
@@ -82,14 +85,44 @@ fn process_statements(statements: &mut Vec<Node>) {
 ///         ...
 ///     }
 ///
-fn add_block_line_breaks(node: &mut BlockNode) {
-    if !node.children.is_empty() {
-        if !node.children[0].is_line_break() {
-            node.children.insert(0, Node::LineBreak(String::from("\n")));
+fn add_block_line_breaks(stmt: &mut Statement) {
+    if !stmt.children.is_empty() {
+        if !stmt.children[0].is_line_break() {
+            stmt.children.insert(0, Node::LineBreak(String::from("\n")));
         }
 
-        if !node.children.last().unwrap().is_line_break() {
-            node.children.push(Node::LineBreak(String::from("\n")));
+        if !stmt.children.last().unwrap().is_line_break() {
+            stmt.children.push(Node::LineBreak(String::from("\n")));
+        }
+    }
+}
+
+/// Relocates keyword- and value comments somewhere more acceptable
+///
+/// See tests at the bottom of the file for example results.
+///
+fn relocate_pre_block_comments(nodes: &mut Vec<Node>) {
+    for node in nodes.iter_mut() {
+        if let Node::Statement(stmt) = node {
+            if stmt.value.is_some() {
+                // If the statement has a value, we want to move every value comment into the
+                // children
+                while let Some(comment) = stmt.value_comments.pop() {
+                    if !stmt.children.is_empty() {
+                        // If this is a block, move the value comments into the block children
+                        stmt.children.insert(0, Node::Comment(comment))
+                    }
+                }
+            } else {
+                // If the statement doesn't have a value, we instead want to move every keyword
+                // comment into the children
+                while let Some(comment) = stmt.keyword_comments.pop() {
+                    if !stmt.children.is_empty() {
+                        // If this is a block, move the value comments into the block children
+                        stmt.children.insert(0, Node::Comment(comment))
+                    }
+                }
+            }
         }
     }
 }
@@ -245,12 +278,19 @@ fn write_node<T: std::io::Write>(
     }
 
     macro_rules! write_keyword {
-        ($keyword:expr) => {
-            match $keyword {
-                StatementKeyword::Keyword(text) => write!(out, "{text}")?,
-                StatementKeyword::ExtensionKeyword(text) => write!(out, "{text}")?,
-                StatementKeyword::Invalid(text) => write!(out, "{text}")?,
+        ($node:expr) => {
+            match $node.keyword {
+                StatementKeyword::Keyword(ref text) => write!(out, "{text}")?,
+                StatementKeyword::ExtensionKeyword(ref text) => write!(out, "{text}")?,
+                StatementKeyword::Invalid(ref text) => write!(out, "{text}")?,
             };
+
+            for ref comment in $node.keyword_comments.as_slice() {
+                write!(out, " {comment}")?;
+            }
+
+            // This is where keyword comment would be written, but since the formatting rules will
+            // move them all, there will never be anything to write.
         };
     }
 
@@ -287,66 +327,58 @@ fn write_node<T: std::io::Write>(
     }
 
     match node {
-        Node::Leaf(node) => {
-            write_keyword!(&node.keyword);
-            write!(out, " ")?;
+        Node::Statement(node) => {
+            write_keyword!(&node);
 
             if let Some(ref value) = node.value {
-                write_value!(&node.keyword, value);
-            }
-
-            write!(out, ";")?;
-        }
-
-        Node::Block(node) => {
-            write_keyword!(&node.keyword);
-            write!(out, " ")?;
-
-            if let Some(ref value) = node.value {
-                write_value!(&node.keyword, value);
                 write!(out, " ")?;
+                write_value!(&node.keyword, value);
             }
 
-            write!(out, "{{")?;
+            if !node.children.is_empty() {
+                write!(out, " {{")?;
 
-            // It's often useful to know what the previous child node was
-            let mut prev_child: Option<&Node> = None;
+                // It's often useful to know what the previous child node was
+                let mut prev_child: Option<&Node> = None;
 
-            for child in node.children.as_slice() {
-                if !child.is_line_break() {
-                    // If the previous line was a line break, draw indentation now, except if the
-                    // current node is also a line break. We don't want indentation on empty lines.
-                    if prev_child.is_line_break() {
-                        indent!(depth + 1);
+                for child in node.children.as_slice() {
+                    if !child.is_line_break() {
+                        // If the previous line was a line break, draw indentation now, except if the
+                        // current node is also a line break. We don't want indentation on empty lines.
+                        if prev_child.is_line_break() {
+                            indent!(depth + 1);
+                        }
+
+                        // If there is no line break after the "{" then add a space before the next
+                        // token
+                        if prev_child.is_none() {
+                            write!(out, " ")?;
+                        }
+
+                        // If the previous node was not a line break, add a space before writing this
+                        // node
+                        if prev_child.is_some() && !prev_child.is_line_break() {
+                            write!(out, " ")?;
+                        }
                     }
 
-                    // If there is no line break after the "{" then add a space before the next
-                    // token
-                    if prev_child.is_none() {
-                        write!(out, " ")?;
-                    }
+                    write_node(out, child, config, depth + 1)?;
 
-                    // If the previous node was not a line break, add a space before writing this
-                    // node
-                    if prev_child.is_some() && !prev_child.is_line_break() {
-                        write!(out, " ")?;
-                    }
+                    prev_child = Some(child);
                 }
 
-                write_node(out, child, config, depth + 1)?;
+                if prev_child.is_line_break() {
+                    // If there is a line break before the closing "}", indent it
+                    indent!(depth);
+                } else {
+                    // Otherwise, add a space before it
+                    write!(out, " ")?;
+                }
 
-                prev_child = Some(child);
-            }
-
-            if prev_child.is_line_break() {
-                // If there is a line break before the closing "}", indent it
-                indent!(depth);
+                write!(out, "}}")?;
             } else {
-                // Otherwise, add a space before it
-                write!(out, " ")?;
+                write!(out, ";")?;
             }
-
-            write!(out, "}}")?;
         }
 
         Node::Comment(text) => {
@@ -462,6 +494,44 @@ mod test {
                 "foo" + 'bar'
                 + 'baz';
 
+                //
+                // Empty blocks
+                //
+
+                test{}
+
+                test{
+                }
+
+                test{
+
+                }
+
+                //
+                // Comments
+                //
+
+                test // This sometimes happens and must be supported
+                {
+                    foo bar;
+                }
+
+                test "something" // This sometimes happens and must be supported
+                {
+                    foo bar;
+                }
+
+                test "foo" /* This would be weird */ /* But let's support it anyway */
+                {
+                    foo bar;
+                }
+
+                test /* foo */ /* bar */ /* baz */ "foo" /* pow */
+                {
+                    // Nobody's ever going to do this (hopefully) so let's not even bother trying
+                    // to make it prettier. Just don't crash.
+                }
+
                 }"#,
             )
             .as_bytes(),
@@ -505,6 +575,40 @@ mod test {
                     pattern "foo"
                           + "bar"
                           + "baz";
+
+                    //
+                    // Empty blocks
+                    //
+
+                    test{
+                    }
+
+                    test {
+                    }
+
+                    test {
+                    }
+
+                    //
+                    // Comments
+                    //
+
+                    test { // This sometimes happens and must be supported
+                        foo bar;
+                    }
+
+                    test "something" { // This sometimes happens and must be supported
+                        foo bar;
+                    }
+
+                    test "foo" { /* This would be weird */ /* But let's support it anyway */
+                        foo bar;
+                    }
+
+                    test /* foo */ /* bar */ /* baz */ "foo" { /* pow */
+                        // Nobody's ever going to do this (hopefully) so let's not even bother trying
+                        // to make it prettier. Just don't crash.
+                    }
                 }
                 "#
             ),
