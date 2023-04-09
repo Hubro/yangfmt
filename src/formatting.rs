@@ -300,14 +300,14 @@ fn write_node<T: std::io::Write>(
     }
 
     macro_rules! write_value {
-        ($keyword:expr, $value:expr) => {
-            match $value {
+        ($node:expr) => {
+            match $node.value.as_ref().unwrap() {
                 NodeValue::Date(text) => write!(out, "{text}")?,
                 NodeValue::Number(text) => write!(out, "{text}")?,
                 NodeValue::String(text) => write!(out, "{text}")?,
                 NodeValue::Other(text) => write!(out, "{text}")?,
                 NodeValue::StringConcatenation(strings) => {
-                    let kwlen = $keyword.text().len();
+                    let kwlen = $node.keyword.text().len();
                     let pad = if kwlen >= 2 { kwlen - 2 } else { 0 };
 
                     // The first string gets written on the same line as the keywords
@@ -328,6 +328,10 @@ fn write_node<T: std::io::Write>(
                     }
                 }
             };
+
+            for ref comment in $node.value_comments.as_slice() {
+                write!(out, " {comment}")?;
+            }
         };
     }
 
@@ -335,9 +339,9 @@ fn write_node<T: std::io::Write>(
         Node::Statement(node) => {
             write_keyword!(&node);
 
-            if let Some(ref value) = node.value {
+            if node.value.is_some() {
                 write!(out, " ")?;
-                write_value!(&node.keyword, value);
+                write_value!(node);
             }
 
             if let Some(ref children) = node.children {
@@ -537,6 +541,9 @@ mod test {
                     // to make it prettier. Just don't crash.
                 }
 
+                test "foo"; // A comment here is fine
+                test "foo" /* This however, is not fine*/ ;
+                test /* Nobody would ever do this, let's just not crash */ "foo" /* yuck */ ;
                 }"#,
             )
             .as_bytes(),
@@ -614,6 +621,10 @@ mod test {
                         // Nobody's ever going to do this (hopefully) so let's not even bother trying
                         // to make it prettier. Just don't crash.
                     }
+
+                    test "foo"; // A comment here is fine
+                    test "foo" /* This however, is not fine*/;
+                    test /* Nobody would ever do this, let's just not crash */ "foo" /* yuck */;
                 }
                 "#
             ),
