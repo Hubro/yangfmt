@@ -111,7 +111,7 @@ pub struct Statement {
     pub keyword_comments: Vec<String>, // Comment(s) between the statement keyword and value
     pub value: Option<NodeValue>,
     pub value_comments: Vec<String>, // Comment(s) between the value and block
-    pub children: Vec<Node>,
+    pub children: Option<Vec<Node>>,
 }
 
 /// The value part of a statement
@@ -245,7 +245,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                     keyword_comments,
                                     value: None,
                                     value_comments: vec![],
-                                    children: parse_statements(tokens)?,
+                                    children: Some(parse_statements(tokens)?),
                                 }));
 
                                 state = ParseState::Clean;
@@ -257,7 +257,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                     keyword_comments,
                                     value: None,
                                     value_comments: vec![],
-                                    children: vec![],
+                                    children: None,
                                 }));
 
                                 state = ParseState::Clean;
@@ -312,7 +312,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                     keyword_comments,
                                     value: Some(value),
                                     value_comments,
-                                    children: parse_statements(tokens)?,
+                                    children: Some(parse_statements(tokens)?),
                                 }));
 
                                 state = ParseState::Clean;
@@ -337,7 +337,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                     keyword_comments,
                                     value: Some(value),
                                     value_comments,
-                                    children: vec![],
+                                    children: None,
                                 }));
 
                                 state = ParseState::Clean;
@@ -388,7 +388,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                         keyword_comments: vec![],
                                         value: Some(NodeValue::StringConcatenation(values)),
                                         value_comments: vec![],
-                                        children: vec![],
+                                        children: None,
                                     }));
                                     state = ParseState::Clean;
                                 }

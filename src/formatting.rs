@@ -60,8 +60,8 @@ fn process_statements(statements: &mut Vec<Node>) {
             add_block_line_breaks(statement);
 
             // Recurse into the block node's children
-            if !statement.children.is_empty() {
-                process_statements(&mut statement.children);
+            if let Some(ref mut children) = statement.children {
+                process_statements(children);
             }
         }
 
@@ -86,13 +86,13 @@ fn process_statements(statements: &mut Vec<Node>) {
 ///     }
 ///
 fn add_block_line_breaks(stmt: &mut Statement) {
-    if !stmt.children.is_empty() {
-        if !stmt.children[0].is_line_break() {
-            stmt.children.insert(0, Node::LineBreak(String::from("\n")));
+    if let Some(ref mut children) = stmt.children {
+        if !children.get(0).map_or(false, |child| child.is_line_break()) {
+            children.insert(0, Node::LineBreak(String::from("\n")));
         }
 
-        if !stmt.children.last().unwrap().is_line_break() {
-            stmt.children.push(Node::LineBreak(String::from("\n")));
+        if !children.last().map_or(false, |child| child.is_line_break()) {
+            children.push(Node::LineBreak(String::from("\n")));
         }
     }
 }
@@ -104,22 +104,27 @@ fn add_block_line_breaks(stmt: &mut Statement) {
 fn relocate_pre_block_comments(nodes: &mut Vec<Node>) {
     for node in nodes.iter_mut() {
         if let Node::Statement(stmt) = node {
+            // Only move keyword-comments or value-comments if this statement has a block
+            if !stmt.children.is_some() {
+                continue;
+            }
+
             if stmt.value.is_some() {
                 // If the statement has a value, we want to move every value comment into the
                 // children
                 while let Some(comment) = stmt.value_comments.pop() {
-                    if !stmt.children.is_empty() {
+                    if let Some(ref mut children) = stmt.children {
                         // If this is a block, move the value comments into the block children
-                        stmt.children.insert(0, Node::Comment(comment))
+                        children.insert(0, Node::Comment(comment))
                     }
                 }
             } else {
                 // If the statement doesn't have a value, we instead want to move every keyword
                 // comment into the children
                 while let Some(comment) = stmt.keyword_comments.pop() {
-                    if !stmt.children.is_empty() {
+                    if let Some(ref mut children) = stmt.children {
                         // If this is a block, move the value comments into the block children
-                        stmt.children.insert(0, Node::Comment(comment))
+                        children.insert(0, Node::Comment(comment))
                     }
                 }
             }
@@ -335,13 +340,13 @@ fn write_node<T: std::io::Write>(
                 write_value!(&node.keyword, value);
             }
 
-            if !node.children.is_empty() {
+            if let Some(ref children) = node.children {
                 write!(out, " {{")?;
 
                 // It's often useful to know what the previous child node was
                 let mut prev_child: Option<&Node> = None;
 
-                for child in node.children.as_slice() {
+                for child in children.as_slice() {
                     if !child.is_line_break() {
                         // If the previous line was a line break, draw indentation now, except if the
                         // current node is also a line break. We don't want indentation on empty lines.
@@ -580,7 +585,7 @@ mod test {
                     // Empty blocks
                     //
 
-                    test{
+                    test {
                     }
 
                     test {

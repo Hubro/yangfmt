@@ -42,8 +42,8 @@ fn format_node(out: &mut Formatter, node: &Node, depth: u8) -> Result<(), fmt::E
                 write!(out, " <comment>")?;
             }
 
-            if !statement.children.is_empty() {
-                for node in statement.children.iter() {
+            if let Some(ref children) = statement.children {
+                for node in children.iter() {
                     format_node(out, node, depth + 1)?;
                 }
             }
