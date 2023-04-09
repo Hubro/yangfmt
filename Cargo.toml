@@ -1,7 +1,13 @@
 [package]
 name = "yangfmt"
 version = "0.1.0"
+authors = ["Tomas Sandven <cargo.hubro@fastmail.com>"]
 edition = "2021"
+description = "YANG code formatter"
+homepage = "https://github.com/Hubro/yangfmt"
+license-file = "LICENSE"
+keywords = ["yang", "code-formatter"]
+categories = ["command-line-utilities", "development-tools"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
