@@ -10,6 +10,15 @@ pub struct FormatConfig {
     pub line_length: u16,
 }
 
+impl FormatConfig {
+    fn indent_width(&self) -> u8 {
+        match self.indent {
+            // Indent::Tab
+            Indent::Spaces(num) => num,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Error(String);
 
@@ -290,7 +299,7 @@ fn write_node<T: std::io::Write>(
                 StatementKeyword::Invalid(ref text) => write!(out, "{text}")?,
             };
 
-            for ref comment in $node.keyword_comments.as_slice() {
+            for comment in $node.keyword_comments.as_slice() {
                 write!(out, " {comment}")?;
             }
 
@@ -299,19 +308,35 @@ fn write_node<T: std::io::Write>(
         };
     }
 
+    macro_rules! write_simple_value {
+        ($line_pos:expr, $value:expr) => {{
+            if ($line_pos + $value.len() as u16 > config.line_length) {
+                writeln!(out)?;
+                indent!(depth + 1);
+            } else {
+                write!(out, " ")?;
+            }
+
+            write!(out, "{}", $value)?;
+        }};
+    }
+
     macro_rules! write_value {
         ($node:expr) => {
+            let kw_text = $node.keyword.text();
+            let line_pos: u16 = (config.indent_width() as u16) * depth + (kw_text.len() as u16);
+
             match $node.value.as_ref().unwrap() {
-                NodeValue::Date(text) => write!(out, "{text}")?,
-                NodeValue::Number(text) => write!(out, "{text}")?,
-                NodeValue::String(text) => write!(out, "{text}")?,
-                NodeValue::Other(text) => write!(out, "{text}")?,
+                NodeValue::Date(text) => write_simple_value!(line_pos, text),
+                NodeValue::Number(text) => write_simple_value!(line_pos, text),
+                NodeValue::String(text) => write_simple_value!(line_pos, text),
+                NodeValue::Other(text) => write_simple_value!(line_pos, text),
                 NodeValue::StringConcatenation(strings) => {
-                    let kwlen = $node.keyword.text().len();
+                    let kwlen = kw_text.len();
                     let pad = if kwlen >= 2 { kwlen - 2 } else { 0 };
 
                     // The first string gets written on the same line as the keywords
-                    write!(out, "{}", strings[0])?;
+                    write!(out, " {}", strings[0])?;
 
                     // The rest get displayed on new lines, padded to align with the first string
                     if let Some(rest) = strings.get(1..) {
@@ -329,7 +354,7 @@ fn write_node<T: std::io::Write>(
                 }
             };
 
-            for ref comment in $node.value_comments.as_slice() {
+            for comment in $node.value_comments.as_slice() {
                 write!(out, " {comment}")?;
             }
         };
@@ -340,7 +365,6 @@ fn write_node<T: std::io::Write>(
             write_keyword!(&node);
 
             if node.value.is_some() {
-                write!(out, " ")?;
                 write_value!(node);
             }
 
@@ -493,6 +517,12 @@ mod test {
                 test 'I am converted';
                 test 'These "quotes" should remain single';
 
+                description "I am short and sweet";
+                description "I am long enough that I definitely need to be wrapped to the next line";
+                description "I am multi-lined,
+                    so I automatically get wrapped
+                    to the next line even though each
+                    individual line is short.";
 
                 pattern '((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}'+'((([0-9a-fA-F]{0,4}:)?(:|[0-9a-fA-F]{0,4}))|'
                 + '(((25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])\.){3}'
@@ -555,7 +585,7 @@ mod test {
             .as_bytes(),
             &(FormatConfig {
                 indent: Indent::Spaces(4),
-                line_length: 80,
+                line_length: 70,
             }),
         )
         .unwrap();
@@ -583,6 +613,15 @@ mod test {
                     test "I am not affected";
                     test "I am converted";
                     test 'These "quotes" should remain single';
+
+                    description "I am short and sweet";
+                    description
+                        "I am long enough that I definitely need to be wrapped to the next line";
+                    description
+                        "I am multi-lined,
+                    so I automatically get wrapped
+                    to the next line even though each
+                    individual line is short.";
 
                     pattern "((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}"
                           + "((([0-9a-fA-F]{0,4}:)?(:|[0-9a-fA-F]{0,4}))|"
