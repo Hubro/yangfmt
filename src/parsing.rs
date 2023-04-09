@@ -185,9 +185,21 @@ pub fn parse(buffer: &[u8]) -> Result<RootNode, String> {
 
 enum ParseState {
     Clean,
+
+    // keyword, keyword_comments
     GotKeyword(StatementKeyword, Vec<String>),
+
+    // keyword, keyword_comments, value, value_comments
     GotValue(StatementKeyword, Vec<String>, NodeValue, Vec<String>),
-    StringConcat(StatementKeyword, Vec<String>, bool),
+
+    // keyword, keyword_comments, value, value_comments, got_plus
+    StringConcat(
+        StatementKeyword,
+        Vec<String>,
+        Vec<String>,
+        Vec<String>,
+        bool,
+    ),
 }
 
 fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node>, String> {
@@ -328,7 +340,13 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                         ))
                                     }
                                 };
-                                state = ParseState::StringConcat(keyword, vec![value], true);
+                                state = ParseState::StringConcat(
+                                    keyword,
+                                    keyword_comments,
+                                    vec![value],
+                                    value_comments,
+                                    true,
+                                );
                             }
 
                             TokenType::SemiColon => {
@@ -352,11 +370,23 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                         }
                     }
 
-                    ParseState::StringConcat(keyword, mut values, got_plus) => {
+                    ParseState::StringConcat(
+                        keyword,
+                        keyword_comments,
+                        mut values,
+                        value_comments,
+                        got_plus,
+                    ) => {
                         // Completely ignore whitespace and line breaks during a string
                         // concatenation
                         if token.is_whitespace() || token.is_line_break() {
-                            state = ParseState::StringConcat(keyword, values, got_plus);
+                            state = ParseState::StringConcat(
+                                keyword,
+                                keyword_comments,
+                                values,
+                                value_comments,
+                                got_plus,
+                            );
                             continue;
                         }
 
@@ -365,7 +395,13 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                             match token.token_type {
                                 TokenType::String => {
                                     values.push(token.text.to_string());
-                                    state = ParseState::StringConcat(keyword, values, false);
+                                    state = ParseState::StringConcat(
+                                        keyword,
+                                        keyword_comments,
+                                        values,
+                                        value_comments,
+                                        false,
+                                    );
                                 }
 
                                 _ => {
@@ -376,11 +412,17 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                 }
                             }
                         } else {
-                            // If we don't have a plus, the valid next tokens are a plus or a
-                            // semicolon
+                            // If the previous token was not a plus, the valid next tokens are a
+                            // plus, a semicolon or a left curly brace
                             match token.token_type {
                                 TokenType::Plus => {
-                                    state = ParseState::StringConcat(keyword, values, true);
+                                    state = ParseState::StringConcat(
+                                        keyword,
+                                        keyword_comments,
+                                        values,
+                                        value_comments,
+                                        true,
+                                    );
                                 }
                                 TokenType::SemiColon => {
                                     statements.push(Node::Statement(Statement {
@@ -390,6 +432,19 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                         value_comments: vec![],
                                         children: None,
                                     }));
+                                    state = ParseState::Clean;
+                                }
+
+                                TokenType::OpenCurlyBrace => {
+                                    // Recurse!
+                                    statements.push(Node::Statement(Statement {
+                                        keyword,
+                                        keyword_comments,
+                                        value: Some(NodeValue::StringConcatenation(values)),
+                                        value_comments,
+                                        children: Some(parse_statements(tokens)?),
+                                    }));
+
                                     state = ParseState::Clean;
                                 }
 

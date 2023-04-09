@@ -503,6 +503,12 @@ mod test {
                 "foo" + 'bar'
                 + 'baz';
 
+                augment "/foo"+"/bar"
+                +"/baz"
+                {
+
+                }
+
                 //
                 // Empty blocks
                 //
@@ -587,6 +593,11 @@ mod test {
                     pattern "foo"
                           + "bar"
                           + "baz";
+
+                    augment "/foo"
+                          + "/bar"
+                          + "/baz" {
+                    }
 
                     //
                     // Empty blocks
