@@ -110,11 +110,11 @@ fn add_block_line_breaks(stmt: &mut Statement) {
 ///
 /// See tests at the bottom of the file for example results.
 ///
-fn relocate_pre_block_comments(nodes: &mut Vec<Node>) {
+fn relocate_pre_block_comments(nodes: &mut [Node]) {
     for node in nodes.iter_mut() {
         if let Node::Statement(stmt) = node {
             // Only move keyword-comments or value-comments if this statement has a block
-            if !stmt.children.is_some() {
+            if stmt.children.is_none() {
                 continue;
             }
 
@@ -362,7 +362,7 @@ fn write_node<T: std::io::Write>(
 
     match node {
         Node::Statement(node) => {
-            write_keyword!(&node);
+            write_keyword!(node);
 
             if node.value.is_some() {
                 write_value!(node);

@@ -587,7 +587,7 @@ mod test {
             vec![Token {
                 token_type: TokenType::LineBreak,
                 span: (0, 1),
-                text: &"\r\n",
+                text: "\r\n",
             }],
             scan(&buffer).collect::<Vec<_>>(),
         );
@@ -598,7 +598,7 @@ mod test {
             vec![Token {
                 token_type: TokenType::LineBreak,
                 span: (0, 0),
-                text: &"\r",
+                text: "\r",
             }],
             scan(&buffer).collect::<Vec<_>>(),
         );
@@ -610,12 +610,12 @@ mod test {
                 Token {
                     token_type: TokenType::LineBreak,
                     span: (0, 0),
-                    text: &"\r",
+                    text: "\r",
                 },
                 Token {
                     token_type: TokenType::LineBreak,
                     span: (1, 1),
-                    text: &"\r",
+                    text: "\r",
                 }
             ],
             scan(&buffer).collect::<Vec<_>>(),

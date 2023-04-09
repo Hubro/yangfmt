@@ -103,7 +103,9 @@ fn main() {
         if let Err(error) = format_yang(&mut out, &buffer, &config) {
             exit_with_error(error);
         }
-    } else {
+    }
+
+    if !args.in_place {
         if let Err(error) = format_yang(&mut stdout, &buffer, &config) {
             exit_with_error(error);
         }
