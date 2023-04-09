@@ -26,6 +26,10 @@ struct Args {
     #[arg(short, long, default_value_t = 2)]
     tab_width: u8,
 
+    /// Format the file in-place rather than print to STDOUT (use with caution!)
+    #[arg(short, long, default_value_t = false, requires("file_path"))]
+    in_place: bool,
+
     /// (debugging) Show raw lexer output rather than auto-formatting
     #[arg(long, default_value_t = false)]
     lex: bool,
@@ -48,8 +52,13 @@ fn main() {
 
     let mut buffer: Vec<u8> = vec![];
 
+    // Check that "-i" and file path "-" isn't provided at the same time
+    if args.file_path.as_ref().map_or(false, |path| path == "-") && args.in_place {
+        exit_with_error("Can't modify STDIN in place");
+    }
+
     match args.file_path {
-        Some(file_path) => {
+        Some(ref file_path) => {
             if file_path == "-" {
                 read_stdin(&mut buffer)
             } else {
@@ -83,8 +92,21 @@ fn main() {
         return;
     }
 
-    if let Err(error) = format_yang(&mut stdout, &buffer, &config) {
-        exit_with_error(error);
+    if args.in_place {
+        let file_path = args.file_path.as_ref().unwrap();
+
+        let mut out = match std::fs::OpenOptions::new().write(true).open(file_path) {
+            Ok(file) => file,
+            Err(err) => exit_with_error(format!("Failed to open file as writeable: {err}")),
+        };
+
+        if let Err(error) = format_yang(&mut out, &buffer, &config) {
+            exit_with_error(error);
+        }
+    } else {
+        if let Err(error) = format_yang(&mut stdout, &buffer, &config) {
+            exit_with_error(error);
+        }
     }
 }
 
