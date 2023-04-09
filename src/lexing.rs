@@ -338,10 +338,12 @@ fn scan_whitespace(buffer: &[u8], cursor: usize) -> Option<usize> {
 fn scan_line_break(buffer: &[u8], cursor: usize) -> Option<usize> {
     if buffer.get(cursor).map_or(false, |c| *c == b'\n') {
         Some(1)
-    } else if buffer.get(cursor).map_or(false, |c| *c == b'\r')
-        && buffer.get(cursor + 1).map_or(false, |c| *c == b'\n')
-    {
-        Some(2)
+    } else if buffer.get(cursor).map_or(false, |c| *c == b'\r') {
+        if buffer.get(cursor + 1).map_or(false, |c| *c == b'\n') {
+            Some(2)
+        } else {
+            Some(1)
+        }
     } else {
         None
     }
@@ -587,6 +589,35 @@ mod test {
                 span: (0, 1),
                 text: &"\r\n",
             }],
+            scan(&buffer).collect::<Vec<_>>(),
+        );
+
+        let buffer = vec![b'\r'];
+
+        assert_eq!(
+            vec![Token {
+                token_type: TokenType::LineBreak,
+                span: (0, 0),
+                text: &"\r",
+            }],
+            scan(&buffer).collect::<Vec<_>>(),
+        );
+
+        let buffer = vec![b'\r', b'\r'];
+
+        assert_eq!(
+            vec![
+                Token {
+                    token_type: TokenType::LineBreak,
+                    span: (0, 0),
+                    text: &"\r",
+                },
+                Token {
+                    token_type: TokenType::LineBreak,
+                    span: (1, 1),
+                    text: &"\r",
+                }
+            ],
             scan(&buffer).collect::<Vec<_>>(),
         );
     }
