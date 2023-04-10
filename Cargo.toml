@@ -1,6 +1,6 @@
 [package]
 name = "yangfmt"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Tomas Sandven <cargo.hubro@fastmail.com>"]
 edition = "2021"
 description = "YANG code formatter"
