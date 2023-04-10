@@ -310,7 +310,8 @@ fn write_node<T: std::io::Write>(
 
     macro_rules! write_simple_value {
         ($line_pos:expr, $value:expr) => {{
-            if ($line_pos + $value.len() as u16 > config.line_length) {
+            // Line length = indent + keyword + value + a space + a semicolon
+            if ($line_pos + ($value.len() as u16) + 2 > config.line_length) {
                 writeln!(out)?;
                 indent!(depth + 1);
             } else {
@@ -518,7 +519,8 @@ mod test {
                 test 'These "quotes" should remain single';
 
                 description "I am short and sweet";
-                description "I am long enough that I definitely need to be wrapped to the next line";
+                description "I should stay on this line line <----------------->";
+                description "I should be wrapped to the next line <------------->";
                 description "I am multi-lined,
                     so I automatically get wrapped
                     to the next line even though each
@@ -615,8 +617,9 @@ mod test {
                     test 'These "quotes" should remain single';
 
                     description "I am short and sweet";
+                    description "I should stay on this line line <----------------->";
                     description
-                        "I am long enough that I definitely need to be wrapped to the next line";
+                        "I should be wrapped to the next line <------------->";
                     description
                         "I am multi-lined,
                     so I automatically get wrapped
