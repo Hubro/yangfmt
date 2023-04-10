@@ -508,7 +508,8 @@ mod test {
 
                 revision 2022-02-03 {
                 }
-                    revision 2022-02-02 { description "qwerty"; }
+                    revision 2022-02-02
+                    { description "qwerty"; }
 
                 //
                 // Some string formatting tests

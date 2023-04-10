@@ -241,7 +241,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                             }
 
                             TokenType::LineBreak => {
-                                statements.push(Node::LineBreak(token.text.to_string()));
+                                // Ignore line breaks between keyword and value
                                 state = ParseState::GotKeyword(keyword, keyword_comments);
                             }
 
@@ -298,7 +298,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                 );
                             }
                             TokenType::LineBreak => {
-                                statements.push(Node::LineBreak(token.text.to_string()));
+                                // Ignore line breaks between value and semicolon/curly-brace
                                 state = ParseState::GotValue(
                                     keyword,
                                     keyword_comments,
@@ -538,7 +538,6 @@ mod test {
               [LineBreak "\n"]
               (comment)
               [LineBreak "\n"]
-              [LineBreak "\n"]
               (Keyword "description" String)
               [LineBreak "\n"])
             [LineBreak "\n"]
@@ -563,7 +562,6 @@ mod test {
         // Expected output
         r#"
         (root
-          [LineBreak "\n"]
           (Keyword "module" <comment> <comment> Other <comment> <comment>
             (comment)
             [LineBreak "\n"])
