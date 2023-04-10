@@ -5,13 +5,13 @@ YANG code formatter
 
 ## Install
 
-Clone the repo, then:
+If you have the Rust toolchain installed:
 
 ```
-$ cargo install --path .
+$ cargo install yangfmt
 ```
 
-Pre-compiled binaries will be provided when the project has stabilized.
+Pre-compiled binaries will be provided soon.
 
 ## Usage
 
