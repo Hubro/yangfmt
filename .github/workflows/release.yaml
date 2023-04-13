@@ -1,0 +1,48 @@
+name: Create release
+
+on: push
+
+# on:
+#   push:
+#     tags:
+#       - "v*"
+
+jobs:
+  build-linux:
+    name: Build Linux binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build release
+        run: cargo build --release
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux
+          path: target/release/yangfmt
+
+  build-macos:
+    name: Build MacOS binary
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build release
+        run: cargo build --release
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux
+          path: target/release/yangfmt
+
+  build-windows:
+    name: Build Windows binary
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build release
+        run: cargo build --release
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows
+          path: target/release/yangfmt.exe
