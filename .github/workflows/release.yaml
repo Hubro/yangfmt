@@ -1,11 +1,9 @@
 name: Create release
 
-on: push
-
-# on:
-#   push:
-#     tags:
-#       - "v*"
+on:
+  push:
+    tags:
+      - "v*"
 
 jobs:
   build-linux:
@@ -85,3 +83,27 @@ jobs:
         with:
           name: ${{ matrix.target }}
           path: target/${{ matrix.target }}/release/yangfmt.exe
+
+  create-release:
+    name: Create release
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create release temporary directory
+        run: mkdir artifacts && mkdir releases
+
+      - uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+
+      - name: Mark build artifacts as executable
+        run: find artifacts -type f -exec chmod 755 {} \;
+
+      - name: Zip up the build artifacts
+        run: find artifacts -type f -exec bash -c 'zip -r releases/$(basename $(dirname {})).zip -j {}' \;
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: releases/*.zip
