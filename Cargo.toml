@@ -17,3 +17,6 @@ lazy_static = "1.4.0"
 pretty_assertions = "1.2.1"
 regex = "1.7.3"
 textwrap = "0.16"
+
+[profile.release]
+strip = true
