@@ -95,7 +95,7 @@ fn main() {
     if args.in_place {
         let file_path = args.file_path.as_ref().unwrap();
 
-        let mut out = match std::fs::OpenOptions::new().write(true).open(file_path) {
+        let mut out = match std::fs::File::create(file_path) {
             Ok(file) => file,
             Err(err) => exit_with_error(format!("Failed to open file as writeable: {err}")),
         };
