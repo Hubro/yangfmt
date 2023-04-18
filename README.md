@@ -47,11 +47,6 @@ TODO:
 
   Instead, error messages should show the file name, line number and column number, plus details about the error.
 
-- [ ] Automatically indent the contents of multi-line strings to align with the first line
-
-  I want to avoid modifying string contents. Leading and trailing whitespace should be fair game though. For the rest of
-  the string, only leading indentation should be touched.
-
 - [ ] Fix all corner case crashes
 
   The [YangModels] repository contains over 80 000 YANG models (totalling over 2.2 GB). When running the formatter on

@@ -64,7 +64,7 @@ pub fn format_yang<T: std::io::Write>(
 
 /// Applies auto-formatting rules recursively to the input statement list
 fn process_statements(statements: &mut Vec<Node>) {
-    for ref mut node in statements.as_mut_slice() {
+    for node in statements.as_mut_slice() {
         if let Node::Statement(ref mut statement) = node {
             add_block_line_breaks(statement);
 
@@ -75,6 +75,9 @@ fn process_statements(statements: &mut Vec<Node>) {
         }
 
         convert_to_double_quotes(node);
+
+        // Multi-lined quoted strings get stripped and dedented
+        strip_dedent_multilined_string(node);
     }
 
     trim_line_breaks(statements);
@@ -261,6 +264,53 @@ fn convert_to_double_quotes(node: &mut Node) {
     }
 }
 
+/// Strips and dedents multi-lined strings
+///
+/// Multi-lined strings in YANG are practically always indented to match the context. Since we
+/// might completely change the indent around strings, we might as well dedent the strings and
+/// recalculate the indentation later during formatting.
+///
+fn strip_dedent_multilined_string(node: &mut Node) {
+    let value = if let Some(value) = node.node_value() {
+        value
+    } else {
+        return;
+    };
+
+    let text = if let NodeValue::String(text) = value {
+        text
+    } else {
+        return;
+    };
+
+    let quotechar = text.chars().next().unwrap();
+
+    // Strips of the quote characters
+    let text = &text[1..text.len() - 1];
+
+    // The string should have no leading or trailing whitespace
+    let text = text.trim();
+    let lines: Vec<_> = text.lines().collect();
+
+    if lines.len() < 2 {
+        return;
+    }
+
+    // The first line is often right at the opening quote, so it doesn't make sense to include it
+    // in the text that gets dedented
+    let first_line = lines.first().unwrap();
+
+    let rest = lines.get(1..).unwrap().join("\n");
+    let rest = textwrap::dedent(&rest);
+
+    let new_text = format!("{}{}\n{}{}", quotechar, first_line, rest, quotechar);
+
+    match node {
+        Node::Statement(ref mut node) => node.value = Some(NodeValue::String(new_text)),
+        _ => unreachable!("If node isn't a statement, how did we get the mutable value?"),
+    };
+}
+
 /// Writes the node tree to the given writeable object
 ///
 /// This automatically handles indentation and spacing between nodes. However, it does not process
@@ -310,6 +360,8 @@ fn write_node<T: std::io::Write>(
 
     macro_rules! write_simple_value {
         ($line_pos:expr, $value:expr) => {{
+            // Checks if the line will be longer than the configured max width
+            //
             // Line length = indent + keyword + value + a space + a semicolon
             if ($line_pos + ($value.len() as u16) + 2 > config.line_length) {
                 writeln!(out)?;
@@ -330,8 +382,39 @@ fn write_node<T: std::io::Write>(
             match $node.value.as_ref().unwrap() {
                 NodeValue::Date(text) => write_simple_value!(line_pos, text),
                 NodeValue::Number(text) => write_simple_value!(line_pos, text),
-                NodeValue::String(text) => write_simple_value!(line_pos, text),
                 NodeValue::Other(text) => write_simple_value!(line_pos, text),
+                NodeValue::String(text) => {
+                    if (text.contains('\n')) {
+                        // Multi-lined strings need to be indented
+                        writeln!(out)?;
+                        indent!(depth + 1);
+
+                        let mut lines = text.lines();
+
+                        // The first line is written normally
+                        write!(out, "{}", lines.next().unwrap())?;
+
+                        // Each subsequent non-empty line are indented to match the starting column
+                        // of the first line, i.e. right after the quote
+                        let extra_indent = config.indent_width() + 1;
+
+                        while let Some(line) = lines.next() {
+                            writeln!(out)?;
+
+                            if !line.is_empty() {
+                                indent!(depth);
+
+                                for _ in 0..extra_indent {
+                                    write!(out, " ")?;
+                                }
+                            }
+
+                            write!(out, "{}", line)?;
+                        }
+                    } else {
+                        write_simple_value!(line_pos, text);
+                    }
+                }
                 NodeValue::StringConcatenation(strings) => {
                     let kwlen = kw_text.len();
                     let pad = if kwlen >= 2 { kwlen - 2 } else { 0 };
@@ -527,6 +610,14 @@ mod test {
                     to the next line even though each
                     individual line is short.";
 
+                description "
+                The first line break here should be removed
+
+                     Then the rest of the string should be properly indented.
+                     The trailing line breaks should also be removed.
+
+                ";
+
                 pattern '((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}'+'((([0-9a-fA-F]{0,4}:)?(:|[0-9a-fA-F]{0,4}))|'
                 + '(((25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])\.){3}'
                  + '(25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])))'
@@ -623,9 +714,15 @@ mod test {
                         "I should be wrapped to the next line <------------->";
                     description
                         "I am multi-lined,
-                    so I automatically get wrapped
-                    to the next line even though each
-                    individual line is short.";
+                         so I automatically get wrapped
+                         to the next line even though each
+                         individual line is short.";
+
+                    description
+                        "The first line break here should be removed
+
+                         Then the rest of the string should be properly indented.
+                         The trailing line breaks should also be removed.";
 
                     pattern "((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}"
                           + "((([0-9a-fA-F]{0,4}:)?(:|[0-9a-fA-F]{0,4}))|"

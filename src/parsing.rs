@@ -41,6 +41,9 @@ pub trait NodeHelpers {
     fn is_line_break(&self) -> bool;
     fn is_comment(&self) -> bool;
 
+    /// Retrieves a reference to the node value, if any
+    fn node_value(&self) -> Option<&NodeValue>;
+
     /// Retrieves a mutable reference to the node value, if any
     fn node_value_mut(&mut self) -> Option<&mut NodeValue>;
 
@@ -55,6 +58,13 @@ impl NodeHelpers for Node {
 
     fn is_comment(&self) -> bool {
         matches!(self, Node::Comment(_))
+    }
+
+    fn node_value(&self) -> Option<&NodeValue> {
+        match self {
+            Node::Statement(statement) => statement.value.as_ref(),
+            _ => None,
+        }
     }
 
     fn node_value_mut(&mut self) -> Option<&mut NodeValue> {
@@ -91,6 +101,12 @@ impl NodeHelpers for Option<&Node> {
     }
     fn is_comment(&self) -> bool {
         self.map_or(false, |node| node.is_comment())
+    }
+    fn node_value(&self) -> Option<&NodeValue> {
+        match self {
+            Some(Node::Statement(statement)) => statement.value.as_ref(),
+            _ => None,
+        }
     }
     fn node_value_mut(&mut self) -> Option<&mut NodeValue> {
         unimplemented!("Cannot implement on a non-mutable ref")
