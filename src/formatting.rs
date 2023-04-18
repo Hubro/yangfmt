@@ -75,9 +75,10 @@ fn process_statements(statements: &mut Vec<Node>) {
         }
 
         convert_to_double_quotes(node);
+        strip_string(node);
 
         // Multi-lined quoted strings get stripped and dedented
-        strip_dedent_multilined_string(node);
+        dedent_multilined_string(node);
     }
 
     trim_line_breaks(statements);
@@ -264,13 +265,50 @@ fn convert_to_double_quotes(node: &mut Node) {
     }
 }
 
-/// Strips and dedents multi-lined strings
+/// Strips all leading and trailing whitespace from string values
+fn strip_string(node: &mut Node) {
+    if let Some(NodeValue::String(ref mut text)) = node.node_value_mut() {
+        let slice = text.as_str();
+        let slice = &slice[1..slice.len() - 1]; // Without the quotes
+
+        let text_start = 1 + match slice.find(|c: char| !c.is_ascii_whitespace()) {
+            Some(pos) => pos,
+            None => {
+                // None means the string doesn't contain any non-whitespace characters, just
+                // replace it with an empty string
+                text.clear();
+                text.push_str("\"\"");
+                return;
+            }
+        };
+
+        let text_end = text.len()
+            - slice
+                .chars()
+                .rev()
+                .position(|c| !c.is_whitespace())
+                .unwrap_or(0)
+            - 2;
+
+        if text_end < (text.len() - 2) {
+            text.drain(text_end + 1..text.len() - 1);
+        }
+
+        if text_start > 1 {
+            text.drain(1..text_start);
+        }
+    }
+}
+
+/// Dedents multi-lined strings
 ///
 /// Multi-lined strings in YANG are practically always indented to match the context. Since we
 /// might completely change the indent around strings, we might as well dedent the strings and
 /// recalculate the indentation later during formatting.
 ///
-fn strip_dedent_multilined_string(node: &mut Node) {
+/// This function assumes any strings have already been stripped, see "strip_string".
+///
+fn dedent_multilined_string(node: &mut Node) {
     let value = if let Some(value) = node.node_value() {
         value
     } else {
@@ -285,11 +323,8 @@ fn strip_dedent_multilined_string(node: &mut Node) {
 
     let quotechar = text.chars().next().unwrap();
 
-    // Strips of the quote characters
+    // Strips off the quote characters
     let text = &text[1..text.len() - 1];
-
-    // The string should have no leading or trailing whitespace
-    let text = text.trim();
     let lines: Vec<_> = text.lines().collect();
 
     if lines.len() < 2 {
@@ -605,6 +640,11 @@ mod test {
                 description "I am short and sweet";
                 description "I should stay on this line line <----------------->";
                 description "I should be wrapped to the next line <------------->";
+                description "  I should be stripped   ";
+                description
+                    "
+                    I should be stripped and changed to 1 line
+                    ";
                 description "I am multi-lined,
                     so I automatically get wrapped
                     to the next line even though each
@@ -712,6 +752,8 @@ mod test {
                     description "I should stay on this line line <----------------->";
                     description
                         "I should be wrapped to the next line <------------->";
+                    description "I should be stripped";
+                    description "I should be stripped and changed to 1 line";
                     description
                         "I am multi-lined,
                          so I automatically get wrapped
