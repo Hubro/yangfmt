@@ -1,4 +1,6 @@
-use crate::parsing::{parse, Node, NodeHelpers, NodeValue, Statement, StatementKeyword};
+use crate::parsing::{
+    parse, Node, NodeHelpers, NodeValue, ParseError, Statement, StatementKeyword,
+};
 
 pub enum Indent {
     // Tab,
@@ -20,23 +22,29 @@ impl FormatConfig {
 }
 
 #[derive(Debug)]
-pub struct Error(String);
+pub enum Error {
+    ParseError(ParseError),
+    IOError(String),
+}
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        match self {
+            Error::ParseError(parse_error) => write!(f, "{}", parse_error.message),
+            Error::IOError(text) => write!(f, "{}", text),
+        }
     }
 }
 
-impl From<String> for Error {
-    fn from(error: String) -> Self {
-        Self(error)
+impl From<ParseError> for Error {
+    fn from(value: ParseError) -> Self {
+        Self::ParseError(value)
     }
 }
 
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
-        Self(format!("I/O Error: {}", error))
+        Self::IOError(format!("I/O Error: {}", error))
     }
 }
 

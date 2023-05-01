@@ -71,9 +71,12 @@ fn main() {
     let mut stdout = stdout().lock();
 
     if args.lex {
-        for token in crate::lexing::scan(&buffer) {
-            writeln!(stdout, "{}", token.human_readable_string())
-                .or_error("Failed to write to STDOUT");
+        for token in crate::lexing::scan_iter(&buffer) {
+            match token {
+                Ok(token) => writeln!(stdout, "{}", token.human_readable_string())
+                    .or_error("Failed to write to STDOUT"),
+                Err(error) => exit_with_error(format!("Lexer error: {error:?}")),
+            }
         }
 
         return;
@@ -82,7 +85,7 @@ fn main() {
     if args.tree {
         let tree = match crate::parsing::parse(&buffer) {
             Ok(tree) => tree,
-            Err(error) => exit_with_error(format!("Failed to parse input file: {error}")),
+            Err(error) => exit_with_error(format!("Failed to parse input file: {error:?}")),
         };
 
         if let Err(error) = writeln!(stdout, "{}", tree) {
@@ -94,21 +97,31 @@ fn main() {
 
     if args.in_place {
         let file_path = args.file_path.as_ref().unwrap();
+        let mut output_buffer: Vec<u8> = vec![];
 
-        let mut out = match std::fs::File::create(file_path) {
-            Ok(file) => file,
-            Err(err) => exit_with_error(format!("Failed to open file as writeable: {err}")),
-        };
+        if let Err(error) = format_yang(&mut output_buffer, &buffer, &config) {
+            handle_formatting_error(error, &buffer);
+        }
 
-        if let Err(error) = format_yang(&mut out, &buffer, &config) {
+        if let Err(error) = std::fs::write(file_path, output_buffer) {
             exit_with_error(error);
         }
     }
 
     if !args.in_place {
         if let Err(error) = format_yang(&mut stdout, &buffer, &config) {
-            exit_with_error(error);
+            handle_formatting_error(error, &buffer);
         }
+    }
+}
+
+fn handle_formatting_error(error: formatting::Error, buffer: &[u8]) {
+    match error {
+        formatting::Error::ParseError(parse_error) => {
+            let pos = TextPosition::from_buffer_index(buffer, parse_error.position);
+            exit_with_error(format!("Parse error at {}: {}", pos, parse_error.message));
+        }
+        formatting::Error::IOError(error) => exit_with_error(error),
     }
 }
 
@@ -126,6 +139,40 @@ fn read_file<T: AsRef<str>>(buffer: &mut Vec<u8>, file_path: T) {
 
     if let Err(error) = file.read_to_end(buffer) {
         exit_with_error(format!("Failed to read from input file: {}", error));
+    }
+}
+
+/// 1-based cursor position in a text file
+pub struct TextPosition {
+    line: usize,
+    col: usize,
+}
+
+impl TextPosition {
+    pub fn from_buffer_index(buffer: &[u8], index: usize) -> Self {
+        let mut line = 1;
+        let mut col = 1;
+
+        for (i, c) in buffer.iter().enumerate() {
+            if i == index {
+                break;
+            }
+
+            if *c == b'\n' {
+                line += 1;
+                col = 1;
+            } else {
+                col += 1;
+            }
+        }
+
+        Self { line, col }
+    }
+}
+
+impl core::fmt::Display for TextPosition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "line {} col {}", self.line, self.col)
     }
 }
 

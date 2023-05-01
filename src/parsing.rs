@@ -1,7 +1,7 @@
 use regex::Regex;
 
 use crate::constants::STATEMENT_KEYWORDS;
-use crate::lexing::{Token, TokenType};
+use crate::lexing::{LexerError, Token, TokenType};
 
 lazy_static! {
     /// See "identifier" from ABNF
@@ -181,6 +181,21 @@ impl From<Token<'_>> for NodeValue {
     }
 }
 
+#[derive(Debug)]
+pub struct ParseError {
+    pub message: String,
+    pub position: usize,
+}
+
+impl From<LexerError> for ParseError {
+    fn from(error: LexerError) -> Self {
+        Self {
+            message: error.message,
+            position: error.position,
+        }
+    }
+}
+
 /// Parses the input bytes as a YANG documents and returns a syntax tree
 ///
 /// The returned node is a virtual "root" block node. This node contains the actual module or
@@ -191,8 +206,8 @@ impl From<Token<'_>> for NodeValue {
 /// invalid YANG. For example, this function will parse a document with multiple module blocks just
 /// fine, or no module node at all, just a bunch of leafs.
 ///
-pub fn parse(buffer: &[u8]) -> Result<RootNode, String> {
-    let mut tokens = crate::lexing::scan(buffer);
+pub fn parse(buffer: &[u8]) -> Result<RootNode, ParseError> {
+    let mut tokens = crate::lexing::scan_iter(buffer);
 
     Ok(RootNode {
         children: parse_statements(&mut tokens)?,
@@ -218,13 +233,23 @@ enum ParseState {
     ),
 }
 
-fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node>, String> {
+fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node>, ParseError> {
     let mut statements: Vec<Node> = vec![];
     let mut state = ParseState::Clean;
 
     loop {
         match tokens.next() {
-            Some(token) => {
+            Some(Ok(token)) => {
+                /// Shortcut for creating a ParseError
+                macro_rules! error {
+                    ($message:expr) => {
+                        Err(ParseError {
+                            message: $message.to_owned(),
+                            position: token.span.0,
+                        })
+                    };
+                }
+
                 match state {
                     ParseState::Clean => {
                         // From a clean state, we expect to find a statement keyword, a comment or
@@ -245,7 +270,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                             TokenType::Other => {
                                 state = ParseState::GotKeyword(token.into(), vec![])
                             }
-                            _ => return Err(format!("Unexpected token: {:?}", token)),
+                            _ => return error!(format!("Unexpected token: {:?}", token)),
                         }
                     }
 
@@ -350,10 +375,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                 let value = match value {
                                     NodeValue::String(string) => string,
                                     _ => {
-                                        return Err(format!(
-                                            "Can only concatenate strings (pos {})",
-                                            token.span.0
-                                        ))
+                                        return error!("Can only concatenate strings");
                                     }
                                 };
                                 state = ParseState::StringConcat(
@@ -378,9 +400,9 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                             }
 
                             _ => {
-                                return Err(format!(
+                                return error!(format!(
                                     "Expected semicolon or block, got: {:?}",
-                                    token
+                                    token.text
                                 ));
                             }
                         }
@@ -420,12 +442,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                     );
                                 }
 
-                                _ => {
-                                    return Err(format!(
-                                        "Expected a string at position {}",
-                                        token.span.0
-                                    ))
-                                }
+                                _ => return error!("Expected a string"),
                             }
                         } else {
                             // If the previous token was not a plus, the valid next tokens are a
@@ -464,22 +481,24 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                     state = ParseState::Clean;
                                 }
 
-                                _ => {
-                                    return Err(format!(
-                                        "Expected '+' or ';' at position {}",
-                                        token.span.0
-                                    ))
-                                }
+                                _ => return error!("Expected '+' or ';'"),
                             }
                         }
                     }
                 }
             }
 
+            Some(Err(lexer_error)) => return Err(lexer_error.into()),
+
             // When we reach the end of the token stream, we're done and can return
             None => match state {
                 ParseState::Clean => return Ok(statements),
-                _ => return Err("Unexpected end of input".to_string()),
+                _ => {
+                    return Err(ParseError {
+                        message: "Unexpected end of input".to_owned(),
+                        position: 0,
+                    })
+                }
             },
         };
     }

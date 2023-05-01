@@ -97,39 +97,19 @@ impl DebugTokenExt for Vec<Token<'_>> {
     }
 }
 
-/// 1-based cursor position in a text file
-pub struct TextPosition {
-    line: usize,
-    col: usize,
+#[derive(Debug)]
+pub struct LexerError {
+    pub message: String,
+    pub position: usize,
 }
 
-impl TextPosition {
-    fn from_buffer_index(buffer: &[u8], index: usize) -> Self {
-        let mut line = 1;
-        let mut col = 1;
-
-        for (i, c) in buffer.iter().enumerate() {
-            if i == index {
-                break;
-            }
-
-            if *c == NEWLINE {
-                line += 1;
-                col = 1;
-            } else {
-                col += 1;
-            }
-        }
-
-        Self { line, col }
+impl LexerError {
+    pub fn new(message: String, position: usize) -> Self {
+        LexerError { message, position }
     }
 }
 
-impl core::fmt::Display for TextPosition {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "line {} col {}", self.line, self.col)
-    }
-}
+type Result<T> = std::result::Result<T, LexerError>;
 
 pub struct ScanIterator<'a> {
     buffer: &'a [u8],
@@ -137,21 +117,35 @@ pub struct ScanIterator<'a> {
 }
 
 impl<'a> Iterator for ScanIterator<'a> {
-    type Item = Token<'a>;
+    type Item = Result<Token<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match next_token(self.buffer, self.cursor).expect("Parse error") {
-            Some((next_cursor, token)) => {
+        match next_token(self.buffer, self.cursor) {
+            Ok(Some((next_cursor, token))) => {
                 self.cursor = next_cursor;
-                Some(token)
+                Some(Ok(token))
             }
-            None => None,
+            Ok(None) => None,
+            Err(error) => Some(Err(error)),
         }
     }
 }
 
-pub fn scan(buffer: &[u8]) -> ScanIterator {
+pub fn scan_iter(buffer: &[u8]) -> ScanIterator {
     ScanIterator { buffer, cursor: 0 }
+}
+
+pub fn scan(buffer: &[u8]) -> Result<Vec<Token>> {
+    let mut tokens = vec![];
+
+    for token in scan_iter(buffer) {
+        match token {
+            Ok(token) => tokens.push(token),
+            Err(error) => return Err(error),
+        }
+    }
+
+    Ok(tokens)
 }
 
 /// Reads the next token from the buffer, returns None on EOF
@@ -161,7 +155,7 @@ pub fn scan(buffer: &[u8]) -> ScanIterator {
 ///
 /// Returns an error on lexer errors such as unterminated strings or comments.
 ///
-fn next_token(buffer: &[u8], cursor: usize) -> Result<Option<(usize, Token)>, String> {
+fn next_token(buffer: &[u8], cursor: usize) -> Result<Option<(usize, Token)>> {
     let char = match buffer.get(cursor) {
         Some(char) => char,
         None => return Ok(None),
@@ -170,7 +164,7 @@ fn next_token(buffer: &[u8], cursor: usize) -> Result<Option<(usize, Token)>, St
     macro_rules! get_str {
         ($length:expr) => {
             str::from_utf8(buffer.get(cursor..cursor + $length).unwrap())
-                .map_err(|err| format!("{}", err))?
+                .map_err(|err| LexerError::new(format!("{}", err), cursor))?
         };
     }
 
@@ -215,9 +209,9 @@ fn next_token(buffer: &[u8], cursor: usize) -> Result<Option<(usize, Token)>, St
             read_token!(TokenType::Other, token_length)
         }
     } else {
-        Err(format!(
-            "Unexpected character at position {}: {:?}",
-            cursor, *char as char,
+        Err(LexerError::new(
+            format!("Unexpected character: {:?}", *char as char),
+            cursor,
         ))
     }
 }
@@ -227,7 +221,7 @@ fn next_token(buffer: &[u8], cursor: usize) -> Result<Option<(usize, Token)>, St
 /// Returns Ok(Some(string_length)) if there is a string at the current position, Ok(None) if
 /// there isn't. Returns an error if the string is never terminated.
 ///
-fn scan_string(buffer: &[u8], cursor: usize) -> Result<Option<usize>, String> {
+fn scan_string(buffer: &[u8], cursor: usize) -> Result<Option<usize>> {
     let quote_char = match buffer[cursor] {
         DOUBLE_QUOTE => DOUBLE_QUOTE,
         SINGLE_QUOTE => SINGLE_QUOTE,
@@ -252,9 +246,9 @@ fn scan_string(buffer: &[u8], cursor: usize) -> Result<Option<usize>, String> {
 
             prev_char = Some(char);
         } else {
-            return Err(format!(
-                "Unexpected end of input, string started at {} was never terminated",
-                TextPosition::from_buffer_index(buffer, cursor),
+            return Err(LexerError::new(
+                "Unexpected end of input, string was never terminated".to_owned(),
+                cursor,
             ));
         }
 
@@ -287,7 +281,7 @@ fn scan_comment(buffer: &[u8], cursor: usize) -> Option<usize> {
 }
 
 /// Checks if there is a block comment at the current position
-fn scan_block_comment(buffer: &[u8], cursor: usize) -> Result<Option<usize>, String> {
+fn scan_block_comment(buffer: &[u8], cursor: usize) -> Result<Option<usize>> {
     if !(buffer.get(cursor).map_or(false, |c| *c == SLASH)
         && buffer.get(cursor + 1).map_or(false, |c| *c == ASTERISK))
     {
@@ -298,9 +292,9 @@ fn scan_block_comment(buffer: &[u8], cursor: usize) -> Result<Option<usize>, Str
 
     for i in cursor + 2.. {
         if i == buffer.len() {
-            return Err(format!(
-                "Unexpected end of input, block comment started at {} was never terminated",
-                TextPosition::from_buffer_index(buffer, cursor)
+            return Err(LexerError::new(
+                "Unexpected end of input, block comment was never terminated".to_owned(),
+                cursor,
             ));
         }
 
@@ -450,7 +444,7 @@ mod test {
         .bytes()
         .collect();
 
-        let tokens: Vec<_> = scan(&buffer).collect();
+        let tokens: Vec<_> = scan(&buffer).unwrap();
 
         assert_eq!(
             dedent(
@@ -534,7 +528,7 @@ mod test {
         .bytes()
         .collect();
 
-        let tokens: Vec<_> = scan(&buffer).collect();
+        let tokens: Vec<_> = scan(&buffer).unwrap();
 
         assert_eq!(
             dedent(
@@ -589,7 +583,7 @@ mod test {
                 span: (0, 1),
                 text: "\r\n",
             }],
-            scan(&buffer).collect::<Vec<_>>(),
+            scan(&buffer).unwrap(),
         );
 
         let buffer = vec![b'\r'];
@@ -600,7 +594,7 @@ mod test {
                 span: (0, 0),
                 text: "\r",
             }],
-            scan(&buffer).collect::<Vec<_>>(),
+            scan(&buffer).unwrap(),
         );
 
         let buffer = vec![b'\r', b'\r'];
@@ -618,7 +612,7 @@ mod test {
                     text: "\r",
                 }
             ],
-            scan(&buffer).collect::<Vec<_>>(),
+            scan(&buffer).unwrap(),
         );
     }
 }
