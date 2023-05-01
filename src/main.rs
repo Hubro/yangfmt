@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+mod canonical_order;
 mod constants;
 mod formatting;
 mod lexing;
@@ -26,6 +27,10 @@ struct Args {
     #[arg(short, long, default_value_t = 2)]
     tab_width: u8,
 
+    /// Sort statements to match canonical order
+    #[arg(short, long, default_value_t = false)]
+    canonical_order: bool,
+
     /// Format the file in-place rather than print to STDOUT (use with caution!)
     #[arg(short, long, default_value_t = false, requires("file_path"))]
     in_place: bool,
@@ -48,6 +53,7 @@ fn main() {
     let config = FormatConfig {
         indent: Indent::Spaces(args.tab_width),
         line_length: args.max_width,
+        fix_canonical_order: args.canonical_order,
     };
 
     let mut buffer: Vec<u8> = vec![];

@@ -1,5 +1,6 @@
-use crate::parsing::{
-    parse, Node, NodeHelpers, NodeValue, ParseError, Statement, StatementKeyword,
+use crate::{
+    canonical_order::sort_statements,
+    parsing::{parse, Node, NodeHelpers, NodeValue, ParseError, Statement, StatementKeyword},
 };
 
 pub enum Indent {
@@ -10,6 +11,7 @@ pub enum Indent {
 pub struct FormatConfig {
     pub indent: Indent,
     pub line_length: u16,
+    pub fix_canonical_order: bool,
 }
 
 impl FormatConfig {
@@ -56,7 +58,7 @@ pub fn format_yang<T: std::io::Write>(
 ) -> Result<(), Error> {
     let mut tree = parse(buffer)?;
 
-    process_statements(&mut tree.children);
+    process_statements(None, &mut tree.children, config);
 
     // The file should end with a line break
     if !tree.children.last().is_line_break() {
@@ -71,14 +73,18 @@ pub fn format_yang<T: std::io::Write>(
 }
 
 /// Applies auto-formatting rules recursively to the input statement list
-fn process_statements(statements: &mut Vec<Node>) {
+fn process_statements(
+    parent_node_name: Option<&str>,
+    statements: &mut Vec<Node>,
+    config: &FormatConfig,
+) {
     for node in statements.as_mut_slice() {
         if let Node::Statement(ref mut statement) = node {
             add_block_line_breaks(statement);
 
             // Recurse into the block node's children
             if let Some(ref mut children) = statement.children {
-                process_statements(children);
+                process_statements(Some(statement.keyword.text()), children, config);
             }
         }
 
@@ -92,6 +98,10 @@ fn process_statements(statements: &mut Vec<Node>) {
     trim_line_breaks(statements);
     squash_line_breaks(statements);
     relocate_pre_block_comments(statements);
+
+    if config.fix_canonical_order {
+        sort_statements(parent_node_name, statements);
+    }
 }
 
 /// Adds line breaks at the start of- and after every block node
@@ -102,7 +112,7 @@ fn process_statements(statements: &mut Vec<Node>) {
 ///
 /// Into:
 ///
-///     revition 2022-12-31 {
+///     revision 2022-12-31 {
 ///         ...
 ///     }
 ///
@@ -597,6 +607,7 @@ mod test {
         let config = FormatConfig {
             indent: Indent::Spaces(4),
             line_length: 80,
+            fix_canonical_order: false,
         };
 
         write_node(&mut out, module_node, &config, 0).expect("Formatting failed");
@@ -722,12 +733,22 @@ mod test {
                 test "foo"; // A comment here is fine
                 test "foo" /* This however, is not fine*/ ;
                 test /* Nobody would ever do this, let's just not crash */ "foo" /* yuck */ ;
+
+                //
+                // Canonical order
+                //
+
+                leaf moo {
+                    description "I should not be sorted because sorting is not enabled";
+                    type string;
+                }
                 }"#,
             )
             .as_bytes(),
             &(FormatConfig {
                 indent: Indent::Spaces(4),
                 line_length: 70,
+                fix_canonical_order: false,
             }),
         )
         .unwrap();
@@ -826,6 +847,56 @@ mod test {
                     test "foo"; // A comment here is fine
                     test "foo" /* This however, is not fine*/;
                     test /* Nobody would ever do this, let's just not crash */ "foo" /* yuck */;
+
+                    //
+                    // Canonical order
+                    //
+
+                    leaf moo {
+                        description
+                            "I should not be sorted because sorting is not enabled";
+                        type string;
+                    }
+                }
+                "#
+            ),
+            result,
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_format_with_fix_canonical_order() {
+        let result = format_yang_str(
+            dedent(
+                r#"
+                leaf {
+                    type string;
+
+
+                    description "I should be moved to the bottom";
+
+                    must "foo" {
+                        // ...
+                    }
+                }
+                "#,
+            )
+            .as_bytes(),
+            &(FormatConfig {
+                indent: Indent::Spaces(4),
+                line_length: 70,
+                fix_canonical_order: true,
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(
+            dedent(
+                r#"
+                leaf {
+                    type string;
+                    description "I should be moved to the bottom";
                 }
                 "#
             ),
