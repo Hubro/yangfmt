@@ -2,18 +2,10 @@
 members = ["crates/*"]
 
 [workspace.package]
-name = "yangfmt"
 version = "0.1.2"
 authors = ["Tomas Sandven <cargo.hubro@fastmail.com>"]
 edition = "2021"
-description = "YANG code formatter"
-homepage = "https://github.com/Hubro/yangfmt"
 license-file = "LICENSE"
-keywords = ["yang", "code-formatter"]
-categories = ["command-line-utilities", "development-tools"]
-
-[profile.release]
-strip = true
 
 [workspace.dependencies]
 lazy_static = "1.4.0"
@@ -25,3 +17,6 @@ textwrap = "0.16"
 yangfmt_lexing = { path = "crates/yangfmt_lexing" }
 yangfmt_parsing = { path = "crates/yangfmt_parsing" }
 yangfmt_formatting = { path = "crates/yangfmt_formatting" }
+
+[profile.release]
+strip = true

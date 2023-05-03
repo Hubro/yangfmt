@@ -1,18 +1,17 @@
 [package]
-name = "yangfmt_cli"
+name = "yangfmt"
+description = "YANG code formatter"
+homepage = "https://github.com/Hubro/yangfmt"
+keywords = ["yang", "code-formatter"]
+categories = ["command-line-utilities", "development-tools"]
+
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-
-[[bin]]
-name = "yangfmt"
-path = "src/main.rs"
+license-file.workspace = true
 
 [dependencies]
 clap = { version = "4.2.1", features = ["derive"] }
-phf.workspace = true
-pretty_assertions.workspace = true
-textwrap.workspace = true
 
 yangfmt_lexing.workspace = true
 yangfmt_parsing.workspace = true
