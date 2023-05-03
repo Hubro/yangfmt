@@ -1,3 +1,5 @@
+mod canonical_order;
+
 use yangfmt_parsing::{parse, Node, NodeHelpers, NodeValue, ParseError, StatementKeyword};
 
 use crate::canonical_order::sort_statements;

@@ -1,19 +1,13 @@
 [package]
-name = "yangfmt_cli"
+name = "yangfmt_formatting"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
 
-[[bin]]
-name = "yangfmt"
-path = "src/main.rs"
-
 [dependencies]
-clap = { version = "4.2.1", features = ["derive"] }
+lazy_static.workspace = true
 phf.workspace = true
 pretty_assertions.workspace = true
 textwrap.workspace = true
 
-yangfmt_lexing.workspace = true
 yangfmt_parsing.workspace = true
-yangfmt_formatting.workspace = true

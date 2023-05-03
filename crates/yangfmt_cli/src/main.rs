@@ -1,11 +1,8 @@
-mod canonical_order;
-mod formatting;
-
 use std::io::{stdin, stdout, Read, Write};
 
 use clap::Parser;
 
-use crate::formatting::{format_yang, FormatConfig, Indent};
+use yangfmt_formatting::{format_yang, Error as FormattingError, FormatConfig, Indent};
 use yangfmt_lexing::DebugTokenExt;
 
 /// YANG auto-formatter, inspired by the consistent style of IETF YANG models
@@ -114,13 +111,13 @@ fn main() {
     }
 }
 
-fn handle_formatting_error(error: formatting::Error, buffer: &[u8]) {
+fn handle_formatting_error(error: FormattingError, buffer: &[u8]) {
     match error {
-        formatting::Error::ParseError(parse_error) => {
+        FormattingError::ParseError(parse_error) => {
             let pos = TextPosition::from_buffer_index(buffer, parse_error.position);
             exit_with_error(format!("Parse error at {}: {}", pos, parse_error.message));
         }
-        formatting::Error::IOError(error) => exit_with_error(error),
+        FormattingError::IOError(error) => exit_with_error(error),
     }
 }
 

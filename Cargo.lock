@@ -573,7 +573,19 @@ dependencies = [
  "phf",
  "pretty_assertions",
  "textwrap",
+ "yangfmt_formatting",
  "yangfmt_lexing",
+ "yangfmt_parsing",
+]
+
+[[package]]
+name = "yangfmt_formatting"
+version = "0.1.2"
+dependencies = [
+ "lazy_static",
+ "phf",
+ "pretty_assertions",
+ "textwrap",
  "yangfmt_parsing",
 ]
 

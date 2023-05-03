@@ -24,3 +24,4 @@ textwrap = "0.16"
 
 yangfmt_lexing = { path = "crates/yangfmt_lexing" }
 yangfmt_parsing = { path = "crates/yangfmt_parsing" }
+yangfmt_formatting = { path = "crates/yangfmt_formatting" }
