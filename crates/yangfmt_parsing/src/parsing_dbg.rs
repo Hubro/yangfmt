@@ -1,6 +1,6 @@
 use std::fmt::{self, Display, Formatter};
 
-use crate::parsing::{Node, NodeValue, RootNode, StatementKeyword};
+use crate::{Node, NodeValue, RootNode, StatementKeyword};
 
 pub fn format_tree(out: &mut Formatter, root: &RootNode) -> Result<(), fmt::Error> {
     write!(out, "(root")?;

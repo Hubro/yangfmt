@@ -15,7 +15,7 @@
 ///
 use phf::phf_map;
 
-use crate::parsing::Node;
+use yangfmt_parsing::Node;
 
 type OrderMapping = phf::Map<&'static str, u8>;
 

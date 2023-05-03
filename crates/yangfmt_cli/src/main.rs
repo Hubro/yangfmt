@@ -1,11 +1,5 @@
-#[macro_use]
-extern crate lazy_static;
-
 mod canonical_order;
-mod constants;
 mod formatting;
-mod parsing;
-mod parsing_dbg;
 
 use std::io::{stdin, stdout, Read, Write};
 
@@ -88,7 +82,7 @@ fn main() {
     }
 
     if args.tree {
-        let tree = match crate::parsing::parse(&buffer) {
+        let tree = match yangfmt_parsing::parse(&buffer) {
             Ok(tree) => tree,
             Err(error) => exit_with_error(format!("Failed to parse input file: {error:?}")),
         };

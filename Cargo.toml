@@ -14,3 +14,13 @@ categories = ["command-line-utilities", "development-tools"]
 
 [profile.release]
 strip = true
+
+[workspace.dependencies]
+lazy_static = "1.4.0"
+phf = { version = "0.11.1", features = ["macros"] }
+pretty_assertions = "1.2.1"
+regex = "1.8.1"
+textwrap = "0.16"
+
+yangfmt_lexing = { path = "crates/yangfmt_lexing" }
+yangfmt_parsing = { path = "crates/yangfmt_parsing" }

@@ -1,3 +1,9 @@
+#[macro_use]
+extern crate lazy_static;
+
+mod constants;
+mod parsing_dbg;
+
 use regex::Regex;
 
 use crate::constants::STATEMENT_KEYWORDS;
