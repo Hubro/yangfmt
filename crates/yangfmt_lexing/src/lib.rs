@@ -12,6 +12,9 @@
 // - Other: Any other token, including keywords, numbers, booleans and unquoted strings
 //
 
+#[macro_use]
+extern crate lazy_static;
+
 use std::str;
 
 use regex::Regex;

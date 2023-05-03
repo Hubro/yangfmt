@@ -1,7 +1,7 @@
 use regex::Regex;
 
 use crate::constants::STATEMENT_KEYWORDS;
-use crate::lexing::{LexerError, Token, TokenType};
+use yangfmt_lexing::{LexerError, Token, TokenType};
 
 lazy_static! {
     /// See "identifier" from ABNF
@@ -213,7 +213,7 @@ impl From<LexerError> for ParseError {
 /// fine, or no module node at all, just a bunch of leafs.
 ///
 pub fn parse(buffer: &[u8]) -> Result<RootNode, ParseError> {
-    let mut tokens = crate::lexing::scan_iter(buffer);
+    let mut tokens = yangfmt_lexing::scan_iter(buffer);
 
     Ok(RootNode {
         children: parse_statements(&mut tokens)?,
@@ -239,7 +239,7 @@ enum ParseState {
     ),
 }
 
-fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node>, ParseError> {
+fn parse_statements(tokens: &mut yangfmt_lexing::ScanIterator) -> Result<Vec<Node>, ParseError> {
     let mut statements: Vec<Node> = vec![];
     let mut state = ParseState::Clean;
 

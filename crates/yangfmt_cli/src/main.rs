@@ -4,7 +4,6 @@ extern crate lazy_static;
 mod canonical_order;
 mod constants;
 mod formatting;
-mod lexing;
 mod parsing;
 mod parsing_dbg;
 
@@ -13,7 +12,7 @@ use std::io::{stdin, stdout, Read, Write};
 use clap::Parser;
 
 use crate::formatting::{format_yang, FormatConfig, Indent};
-use crate::lexing::DebugTokenExt;
+use yangfmt_lexing::DebugTokenExt;
 
 /// YANG auto-formatter, inspired by the consistent style of IETF YANG models
 #[derive(Parser, Debug)]
@@ -77,7 +76,7 @@ fn main() {
     let mut stdout = stdout().lock();
 
     if args.lex {
-        for token in crate::lexing::scan_iter(&buffer) {
+        for token in yangfmt_lexing::scan_iter(&buffer) {
             match token {
                 Ok(token) => writeln!(stdout, "{}", token.human_readable_string())
                     .or_error("Failed to write to STDOUT"),

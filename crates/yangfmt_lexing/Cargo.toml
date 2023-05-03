@@ -1,20 +1,13 @@
 [package]
-name = "yangfmt_cli"
+name = "yangfmt_lexing"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
 
-[[bin]]
-name = "yangfmt"
-path = "src/main.rs"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "4.2.1", features = ["derive"] }
 lazy_static = "1.4.0"
-phf = { version = "0.11.1", features = ["macros"] }
 pretty_assertions = "1.2.1"
-regex = "1.7.3"
+regex = "1.8.1"
 textwrap = "0.16"
-yangfmt_lexing = { path = "../yangfmt_lexing" }
