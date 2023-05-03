@@ -5,13 +5,13 @@ YANG code formatter
 
 ## Install
 
-If you have the Rust toolchain installed:
+Download the correct pre-compiled binary for your system from [Releases](https://github.com/Hubro/yangfmt/releases).
+
+Alternatively, if you have the Rust toolchain installed:
 
 ```
 $ cargo install yangfmt
 ```
-
-Pre-compiled binaries will be provided soon.
 
 ## Usage
 
@@ -43,10 +43,6 @@ TODO:
 
 - [ ] Automatically sort statements to comply with the canonical order (maybe behind a feature flag?)
 
-- [ ] Better error messages, currently syntax errors are reported raw with a character index
-
-  Instead, error messages should show the file name, line number and column number, plus details about the error.
-
 - [ ] Fix all corner case crashes
 
   The [YangModels] repository contains over 80 000 YANG models (totalling over 2.2 GB). When running the formatter on
@@ -61,7 +57,7 @@ TODO:
 
   Fortunately I've never seen anybody do this, but it's legal YANG so it should be supported.
 
-[YandModels]: https://github.com/YangModels/yang
+[YangModels]: https://github.com/YangModels/yang
 
 ## Ideas
 
