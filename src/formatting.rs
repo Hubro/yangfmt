@@ -1,6 +1,6 @@
 use crate::{
     canonical_order::sort_statements,
-    parsing::{parse, Node, NodeHelpers, NodeValue, ParseError, Statement, StatementKeyword},
+    parsing::{parse, Node, NodeHelpers, NodeValue, ParseError, StatementKeyword},
 };
 
 pub enum Indent {
@@ -60,11 +60,6 @@ pub fn format_yang<T: std::io::Write>(
 
     process_statements(None, &mut tree.children, config);
 
-    // The file should end with a line break
-    if !tree.children.last().is_line_break() {
-        tree.children.push(Node::LineBreak("\n".to_string()));
-    }
-
     for node in tree.children {
         write_node(out, &node, config, 0)?;
     }
@@ -80,8 +75,6 @@ fn process_statements(
 ) {
     for node in statements.as_mut_slice() {
         if let Node::Statement(ref mut statement) = node {
-            add_block_line_breaks(statement);
-
             // Recurse into the block node's children
             if let Some(ref mut children) = statement.children {
                 process_statements(Some(statement.keyword.text()), children, config);
@@ -101,30 +94,6 @@ fn process_statements(
 
     if config.fix_canonical_order {
         sort_statements(parent_node_name, statements);
-    }
-}
-
-/// Adds line breaks at the start of- and after every block node
-///
-/// Essentially converts every:
-///
-///     revision 2022-12-31 { ... }
-///
-/// Into:
-///
-///     revision 2022-12-31 {
-///         ...
-///     }
-///
-fn add_block_line_breaks(stmt: &mut Statement) {
-    if let Some(ref mut children) = stmt.children {
-        if !children.get(0).map_or(false, |child| child.is_line_break()) {
-            children.insert(0, Node::LineBreak(String::from("\n")));
-        }
-
-        if !children.last().map_or(false, |child| child.is_line_break()) {
-            children.push(Node::LineBreak(String::from("\n")));
-        }
     }
 }
 
@@ -191,16 +160,12 @@ fn relocate_pre_block_comments(nodes: &mut [Node]) {
 ///     }
 ///
 fn trim_line_breaks(statements: &mut Vec<Node>) {
-    if statements.get(0).is_line_break() {
-        while statements.get(1).is_line_break() {
-            statements.remove(1);
-        }
+    while statements.get(0).is_empty_line() {
+        statements.remove(0);
     }
 
-    if statements.last().is_line_break() && statements.len() > 1 {
-        while statements.get(statements.len() - 2).is_line_break() {
-            statements.remove(statements.len() - 2);
-        }
+    while statements.last().is_empty_line() {
+        statements.pop();
     }
 }
 
@@ -225,15 +190,10 @@ fn trim_line_breaks(statements: &mut Vec<Node>) {
 ///     }
 ///
 fn squash_line_breaks(statements: &mut Vec<Node>) {
-    // Start at second index, since this is the earliest possible position we'd want to prune any
-    // line breaks
-    let mut i = 2;
+    let mut i = 1;
 
     while let Some(node) = statements.get(i) {
-        if node.is_line_break()
-            && statements.get(i - 1).is_line_break()
-            && statements.get(i - 2).is_line_break()
-        {
+        if node.is_empty_line() && statements.get(i - 1).is_empty_line() {
             statements.remove(i);
             continue;
         }
@@ -499,6 +459,7 @@ fn write_node<T: std::io::Write>(
 
     match node {
         Node::Statement(node) => {
+            indent!(depth);
             write_keyword!(node);
 
             if node.value.is_some() {
@@ -506,56 +467,27 @@ fn write_node<T: std::io::Write>(
             }
 
             if let Some(ref children) = node.children {
-                write!(out, " {{")?;
-
-                // It's often useful to know what the previous child node was
-                let mut prev_child: Option<&Node> = None;
+                writeln!(out, " {{")?;
 
                 for child in children.as_slice() {
-                    if !child.is_line_break() {
-                        // If the previous line was a line break, draw indentation now, except if the
-                        // current node is also a line break. We don't want indentation on empty lines.
-                        if prev_child.is_line_break() {
-                            indent!(depth + 1);
-                        }
-
-                        // If there is no line break after the "{" then add a space before the next
-                        // token
-                        if prev_child.is_none() {
-                            write!(out, " ")?;
-                        }
-
-                        // If the previous node was not a line break, add a space before writing this
-                        // node
-                        if prev_child.is_some() && !prev_child.is_line_break() {
-                            write!(out, " ")?;
-                        }
-                    }
-
                     write_node(out, child, config, depth + 1)?;
-
-                    prev_child = Some(child);
                 }
 
-                if prev_child.is_line_break() {
-                    // If there is a line break before the closing "}", indent it
-                    indent!(depth);
-                } else {
-                    // Otherwise, add a space before it
-                    write!(out, " ")?;
-                }
-
+                indent!(depth);
                 write!(out, "}}")?;
             } else {
                 write!(out, ";")?;
             }
+
+            write!(out, "\n")?; // All statements implicitly end with a line break
         }
 
         Node::Comment(text) => {
-            write!(out, "{text}")?;
+            indent!(depth);
+            writeln!(out, "{text}")?;
         }
 
-        Node::LineBreak(_) => {
+        Node::EmptyLine(_) => {
             writeln!(out)?;
         }
     }
@@ -621,7 +553,10 @@ mod test {
                     foo 123.45;
 
 
-                    revision 2022-02-02 { description "qwerty"; } oh "dear";
+                    revision 2022-02-02 {
+                        description "qwerty";
+                    }
+                    oh "dear";
 
                 }
                 "#

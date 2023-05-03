@@ -13,32 +13,14 @@ lazy_static! {
 }
 
 #[derive(Debug)]
-pub enum StatementKeyword {
-    Keyword(String),
-    ExtensionKeyword(String),
-    Invalid(String),
-}
-
-impl StatementKeyword {
-    /// Shortcut for reading the keyword text
-    pub fn text(&self) -> &str {
-        match self {
-            StatementKeyword::Keyword(text) => text,
-            StatementKeyword::ExtensionKeyword(text) => text,
-            StatementKeyword::Invalid(text) => text,
-        }
-    }
-}
-
-#[derive(Debug)]
 pub enum Node {
     Statement(Statement),
-    LineBreak(String),
+    EmptyLine(String),
     Comment(String),
 }
 
 pub trait NodeHelpers {
-    fn is_line_break(&self) -> bool;
+    fn is_empty_line(&self) -> bool;
     fn is_comment(&self) -> bool;
 
     /// Retrieves a reference to the node value, if any
@@ -52,8 +34,8 @@ pub trait NodeHelpers {
 }
 
 impl NodeHelpers for Node {
-    fn is_line_break(&self) -> bool {
-        matches!(self, Node::LineBreak(_))
+    fn is_empty_line(&self) -> bool {
+        matches!(self, Node::EmptyLine(_))
     }
 
     fn is_comment(&self) -> bool {
@@ -96,8 +78,8 @@ impl NodeHelpers for Node {
 }
 
 impl NodeHelpers for Option<&Node> {
-    fn is_line_break(&self) -> bool {
-        self.map_or(false, |node| node.is_line_break())
+    fn is_empty_line(&self) -> bool {
+        self.map_or(false, |node| node.is_empty_line())
     }
     fn is_comment(&self) -> bool {
         self.map_or(false, |node| node.is_comment())
@@ -124,10 +106,34 @@ pub struct RootNode {
 #[derive(Debug)]
 pub struct Statement {
     pub keyword: StatementKeyword,
-    pub keyword_comments: Vec<String>, // Comment(s) between the statement keyword and value
+    /// Comment(s) between the statement keyword and value
+    pub keyword_comments: Vec<String>,
     pub value: Option<NodeValue>,
-    pub value_comments: Vec<String>, // Comment(s) between the value and block
+    /// Comment(s) between the value and block
+    pub value_comments: Vec<String>,
     pub children: Option<Vec<Node>>,
+    // /// Any comments after the statement, but on the same line. This is only possible for
+    // /// single-line statements. Any comments on the same line as a closing curly brace will be
+    // /// interpreted as a standalone comment.
+    // pub post_comments: Vec<String>,
+}
+
+#[derive(Debug)]
+pub enum StatementKeyword {
+    Keyword(String),
+    ExtensionKeyword(String),
+    Invalid(String),
+}
+
+impl StatementKeyword {
+    /// Shortcut for reading the keyword text
+    pub fn text(&self) -> &str {
+        match self {
+            StatementKeyword::Keyword(text) => text,
+            StatementKeyword::ExtensionKeyword(text) => text,
+            StatementKeyword::Invalid(text) => text,
+        }
+    }
 }
 
 /// The value part of a statement
@@ -237,6 +243,8 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
     let mut statements: Vec<Node> = vec![];
     let mut state = ParseState::Clean;
 
+    let mut previous: Option<Token> = None;
+
     loop {
         match tokens.next() {
             Some(Ok(token)) => {
@@ -259,7 +267,13 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                 // Ignore whitespace
                             }
                             TokenType::LineBreak => {
-                                statements.push(Node::LineBreak(token.text.to_string()))
+                                if let Some(ref previous) = previous {
+                                    if previous.is_line_break() {
+                                        // A line break right after another line break = an empty
+                                        // line
+                                        statements.push(Node::EmptyLine(token.text.to_string()))
+                                    }
+                                }
                             }
                             TokenType::Comment => {
                                 statements.push(Node::Comment(token.text.to_string()))
@@ -268,7 +282,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                 return Ok(statements);
                             }
                             TokenType::Other => {
-                                state = ParseState::GotKeyword(token.into(), vec![])
+                                state = ParseState::GotKeyword((&token).into(), vec![])
                             }
                             _ => return error!(format!("Unexpected token: {:?}", token)),
                         }
@@ -320,7 +334,7 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                                 state = ParseState::GotValue(
                                     keyword,
                                     keyword_comments,
-                                    token.into(),
+                                    (&token).into(),
                                     vec![],
                                 );
                             }
@@ -486,6 +500,8 @@ fn parse_statements(tokens: &mut crate::lexing::ScanIterator) -> Result<Vec<Node
                         }
                     }
                 }
+
+                previous = Some(token);
             }
 
             Some(Err(lexer_error)) => return Err(lexer_error.into()),
@@ -558,31 +574,19 @@ mod test {
         r#"
         (root
           (comment)
-          [LineBreak "\n"]
-          [LineBreak "\n"]
+          [EmptyLine]
           (Keyword "module" Other
-            [LineBreak "\n"]
             (Keyword "yang-version" Number)
-            [LineBreak "\n"]
             (Keyword "namespace" String)
-            [LineBreak "\n"]
             (Keyword "description" String)
-            [LineBreak "\n"]
-            [LineBreak "\n"]
+            [EmptyLine]
             (Keyword "revision" Date
-              [LineBreak "\n"]
               (comment)
-              [LineBreak "\n"]
-              (Keyword "description" String)
-              [LineBreak "\n"])
-            [LineBreak "\n"]
-            [LineBreak "\n"]
+              (Keyword "description" String))
+            [EmptyLine]
             (ExtensionKeyword "ext:omg-no-value")
-            [LineBreak "\n"]
-            [LineBreak "\n"]
-            (INVALID "number" Number)
-            [LineBreak "\n"])
-          [LineBreak "\n"])
+            [EmptyLine]
+            (INVALID "number" Number)))
         "#
     );
 
@@ -598,10 +602,8 @@ mod test {
         r#"
         (root
           (Keyword "module" <comment> <comment> Other <comment> <comment>
-            (comment)
-            [LineBreak "\n"])
-          (comment)
-          [LineBreak "\n"])
+            (comment))
+          (comment))
         "#
     );
 }

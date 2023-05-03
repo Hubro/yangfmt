@@ -50,8 +50,8 @@ fn format_node(out: &mut Formatter, node: &Node, depth: u8) -> Result<(), fmt::E
 
             write!(out, ")")?;
         }
-        Node::LineBreak(text) => {
-            write!(out, "[LineBreak {text:?}]")?;
+        Node::EmptyLine(_) => {
+            write!(out, "[EmptyLine]")?;
         }
         Node::Comment(_) => {
             write!(out, "(comment)")?;
