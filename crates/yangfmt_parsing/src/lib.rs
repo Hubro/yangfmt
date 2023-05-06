@@ -118,10 +118,10 @@ pub struct Statement {
     /// Comment(s) between the value and block
     pub value_comments: Vec<String>,
     pub children: Option<Vec<Node>>,
-    // /// Any comments after the statement, but on the same line. This is only possible for
-    // /// single-line statements. Any comments on the same line as a closing curly brace will be
-    // /// interpreted as a standalone comment.
-    // pub post_comments: Vec<String>,
+    /// Any comments after the statement, but on the same line. For single-line statements, this is
+    /// any comments after the semicolon. For block statements, this is any comment after the
+    /// opening brace, on the same line.
+    pub post_comments: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -235,6 +235,15 @@ enum ParseState {
     // keyword, keyword_comments, value, value_comments
     GotValue(StatementKeyword, Vec<String>, NodeValue, Vec<String>),
 
+    // keyword, keyword_comments, value, value_comments, post_comments
+    GotStatement(
+        StatementKeyword,
+        Vec<String>,
+        Option<NodeValue>,
+        Vec<String>,
+        Vec<String>,
+    ),
+
     // keyword, keyword_comments, value, value_comments, got_plus
     StringConcat(
         StatementKeyword,
@@ -319,21 +328,20 @@ fn parse_statements(tokens: &mut yangfmt_lexing::ScanIterator) -> Result<Vec<Nod
                                     value: None,
                                     value_comments: vec![],
                                     children: Some(parse_statements(tokens)?),
+                                    post_comments: vec![],
                                 }));
 
                                 state = ParseState::Clean;
                             }
 
                             TokenType::SemiColon => {
-                                statements.push(Node::Statement(Statement {
+                                state = ParseState::GotStatement(
                                     keyword,
                                     keyword_comments,
-                                    value: None,
-                                    value_comments: vec![],
-                                    children: None,
-                                }));
-
-                                state = ParseState::Clean;
+                                    None,
+                                    vec![],
+                                    vec![],
+                                );
                             }
 
                             _ => {
@@ -386,6 +394,7 @@ fn parse_statements(tokens: &mut yangfmt_lexing::ScanIterator) -> Result<Vec<Nod
                                     value: Some(value),
                                     value_comments,
                                     children: Some(parse_statements(tokens)?),
+                                    post_comments: vec![],
                                 }));
 
                                 state = ParseState::Clean;
@@ -408,15 +417,13 @@ fn parse_statements(tokens: &mut yangfmt_lexing::ScanIterator) -> Result<Vec<Nod
                             }
 
                             TokenType::SemiColon => {
-                                statements.push(Node::Statement(Statement {
+                                state = ParseState::GotStatement(
                                     keyword,
                                     keyword_comments,
-                                    value: Some(value),
+                                    Some(value),
                                     value_comments,
-                                    children: None,
-                                }));
-
-                                state = ParseState::Clean;
+                                    vec![],
+                                );
                             }
 
                             _ => {
@@ -427,6 +434,60 @@ fn parse_statements(tokens: &mut yangfmt_lexing::ScanIterator) -> Result<Vec<Nod
                             }
                         }
                     }
+
+                    ParseState::GotStatement(
+                        keyword,
+                        keyword_comments,
+                        value,
+                        value_comments,
+                        mut post_comments,
+                    ) => match token.token_type {
+                        TokenType::LineBreak => {
+                            statements.push(Node::Statement(Statement {
+                                keyword,
+                                keyword_comments,
+                                value,
+                                value_comments,
+                                children: None,
+                                post_comments,
+                            }));
+                            state = ParseState::Clean;
+                        }
+
+                        TokenType::Comment => {
+                            post_comments.push(token.text.into());
+
+                            state = ParseState::GotStatement(
+                                keyword,
+                                keyword_comments,
+                                value,
+                                value_comments,
+                                post_comments,
+                            );
+                        }
+
+                        // Ignore whitespace
+                        TokenType::WhiteSpace => {
+                            state = ParseState::GotStatement(
+                                keyword,
+                                keyword_comments,
+                                value,
+                                value_comments,
+                                post_comments,
+                            );
+                        }
+
+                        TokenType::ClosingCurlyBrace => {
+                            return Ok(statements);
+                        }
+
+                        _ => {
+                            return error!(format!(
+                                "Expected comment or line break, got: {:?}",
+                                token.text
+                            ));
+                        }
+                    },
 
                     ParseState::StringConcat(
                         keyword,
@@ -484,6 +545,7 @@ fn parse_statements(tokens: &mut yangfmt_lexing::ScanIterator) -> Result<Vec<Nod
                                         value: Some(NodeValue::StringConcatenation(values)),
                                         value_comments: vec![],
                                         children: None,
+                                        post_comments: vec![],
                                     }));
                                     state = ParseState::Clean;
                                 }
@@ -496,6 +558,7 @@ fn parse_statements(tokens: &mut yangfmt_lexing::ScanIterator) -> Result<Vec<Nod
                                         value: Some(NodeValue::StringConcatenation(values)),
                                         value_comments,
                                         children: Some(parse_statements(tokens)?),
+                                        post_comments: vec![],
                                     }));
 
                                     state = ParseState::Clean;

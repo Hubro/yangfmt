@@ -480,6 +480,10 @@ fn write_node<T: std::io::Write>(
                 write!(out, ";")?;
             }
 
+            for comment in &node.post_comments {
+                write!(out, " {}", comment)?;
+            }
+
             write!(out, "\n")?; // All statements implicitly end with a line break
         }
 
