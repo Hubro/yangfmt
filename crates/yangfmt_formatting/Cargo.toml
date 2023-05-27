@@ -5,6 +5,9 @@ authors.workspace = true
 edition.workspace = true
 license-file.workspace = true
 
+[lib]
+path = "src/formatting.rs"
+
 [dependencies]
 lazy_static.workspace = true
 phf.workspace = true

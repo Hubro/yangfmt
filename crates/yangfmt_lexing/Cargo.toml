@@ -5,6 +5,9 @@ authors.workspace = true
 edition.workspace = true
 license-file.workspace = true
 
+[lib]
+path = "src/lexing.rs"
+
 [dependencies]
 lazy_static.workspace = true
 pretty_assertions.workspace = true
