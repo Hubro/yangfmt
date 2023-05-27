@@ -42,6 +42,10 @@ fn format_node(out: &mut Formatter, node: &Node, depth: u8) -> Result<(), fmt::E
                 write!(out, " <comment>")?;
             }
 
+            for _ in statement.post_comments.as_slice() {
+                write!(out, " <post-comment>")?;
+            }
+
             if let Some(ref children) = statement.children {
                 for node in children.iter() {
                     format_node(out, node, depth + 1)?;

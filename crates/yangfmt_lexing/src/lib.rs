@@ -112,7 +112,7 @@ impl LexerError {
     }
 }
 
-type Result<T> = std::result::Result<T, LexerError>;
+pub type Result<T> = std::result::Result<T, LexerError>;
 
 pub struct ScanIterator<'a> {
     buffer: &'a [u8],

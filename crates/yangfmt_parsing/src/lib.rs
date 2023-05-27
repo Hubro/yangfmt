@@ -1,197 +1,16 @@
+#![allow(unused)]
+
 #[macro_use]
 extern crate lazy_static;
 
 mod constants;
+mod node;
+mod parse_statement;
 mod parsing_dbg;
 
-use regex::Regex;
-
-use crate::constants::STATEMENT_KEYWORDS;
+pub use crate::node::{Node, NodeValue, RootNode, Statement, StatementKeyword};
+use crate::parse_statement::parse_statement;
 use yangfmt_lexing::{LexerError, Token, TokenType};
-
-lazy_static! {
-    /// See "identifier" from ABNF
-    static ref IDENTIFIER_PATTERN: Regex = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9\-_.]*$").unwrap();
-
-    /// identifier ":" identifier - See "unknown-statement" from ABNF
-    static ref EXT_KEYWORD_PATTERN: Regex =
-        Regex::new(r"^[a-zA-Z_][a-zA-Z0-9\-_.]*:[a-zA-Z_][a-zA-Z0-9\-_.]*$").unwrap();
-}
-
-#[derive(Debug)]
-pub enum Node {
-    Statement(Statement),
-    EmptyLine(String),
-    Comment(String),
-}
-
-pub trait NodeHelpers {
-    fn is_empty_line(&self) -> bool;
-    fn is_comment(&self) -> bool;
-
-    /// Retrieves a reference to the node value, if any
-    fn node_value(&self) -> Option<&NodeValue>;
-
-    /// Retrieves a mutable reference to the node value, if any
-    fn node_value_mut(&mut self) -> Option<&mut NodeValue>;
-
-    /// Retrieves a mutable reference to the node value's text, if any
-    fn value_string_mut(&mut self) -> Option<&mut String>;
-}
-
-impl NodeHelpers for Node {
-    fn is_empty_line(&self) -> bool {
-        matches!(self, Node::EmptyLine(_))
-    }
-
-    fn is_comment(&self) -> bool {
-        matches!(self, Node::Comment(_))
-    }
-
-    fn node_value(&self) -> Option<&NodeValue> {
-        match self {
-            Node::Statement(statement) => statement.value.as_ref(),
-            _ => None,
-        }
-    }
-
-    fn node_value_mut(&mut self) -> Option<&mut NodeValue> {
-        match self {
-            Node::Statement(statement) => statement.value.as_mut(),
-            _ => None,
-        }
-    }
-
-    /// Retrieves a mutable reference to the node value text, if any
-    fn value_string_mut(&mut self) -> Option<&mut String> {
-        let value = match self {
-            Node::Statement(statement) => &mut statement.value,
-            _ => return None,
-        };
-
-        if let Some(ref mut value) = value {
-            match value {
-                NodeValue::String(ref mut text) => Some(text),
-                NodeValue::Date(ref mut text) => Some(text),
-                NodeValue::Number(ref mut text) => Some(text),
-                NodeValue::Other(ref mut text) => Some(text),
-                NodeValue::StringConcatenation(_) => None,
-            }
-        } else {
-            None
-        }
-    }
-}
-
-impl NodeHelpers for Option<&Node> {
-    fn is_empty_line(&self) -> bool {
-        self.map_or(false, |node| node.is_empty_line())
-    }
-    fn is_comment(&self) -> bool {
-        self.map_or(false, |node| node.is_comment())
-    }
-    fn node_value(&self) -> Option<&NodeValue> {
-        match self {
-            Some(Node::Statement(statement)) => statement.value.as_ref(),
-            _ => None,
-        }
-    }
-    fn node_value_mut(&mut self) -> Option<&mut NodeValue> {
-        unimplemented!("Cannot implement on a non-mutable ref")
-    }
-    fn value_string_mut(&mut self) -> Option<&mut String> {
-        unimplemented!("Cannot implement on a non-mutable ref")
-    }
-}
-
-#[derive(Debug)]
-pub struct RootNode {
-    pub children: Vec<Node>,
-}
-
-#[derive(Debug)]
-pub struct Statement {
-    pub keyword: StatementKeyword,
-    /// Comment(s) between the statement keyword and value
-    pub keyword_comments: Vec<String>,
-    pub value: Option<NodeValue>,
-    /// Comment(s) between the value and block
-    pub value_comments: Vec<String>,
-    pub children: Option<Vec<Node>>,
-    /// Any comments after the statement, but on the same line. For single-line statements, this is
-    /// any comments after the semicolon. For block statements, this is any comment after the
-    /// opening brace, on the same line.
-    pub post_comments: Vec<String>,
-}
-
-#[derive(Debug)]
-pub enum StatementKeyword {
-    Keyword(String),
-    ExtensionKeyword(String),
-    Invalid(String),
-}
-
-impl StatementKeyword {
-    /// Shortcut for reading the keyword text
-    pub fn text(&self) -> &str {
-        match self {
-            StatementKeyword::Keyword(text) => text,
-            StatementKeyword::ExtensionKeyword(text) => text,
-            StatementKeyword::Invalid(text) => text,
-        }
-    }
-}
-
-/// The value part of a statement
-#[derive(Debug)]
-pub enum NodeValue {
-    String(String),
-    StringConcatenation(Vec<String>),
-    Number(String),
-    Date(String),
-
-    /// Any value not obviously identifiable as a quoted string, number or date is just loosely
-    /// categorized as "other". This can be extended to support more fine grained types such as
-    /// identifiers, booleans, xpaths, keypaths and so on if a use-case appears.
-    Other(String),
-}
-
-impl From<&Token<'_>> for StatementKeyword {
-    fn from(token: &Token) -> Self {
-        if STATEMENT_KEYWORDS.contains(&token.text) {
-            StatementKeyword::Keyword(token.text.to_string())
-        } else if EXT_KEYWORD_PATTERN.is_match(token.text) {
-            StatementKeyword::ExtensionKeyword(token.text.to_string())
-        } else {
-            // Anything that is not a statement keyword or an extension keyword is invalid, but
-            // we'll keep building the tree anyway.
-            StatementKeyword::Invalid(token.text.to_string())
-        }
-    }
-}
-
-impl From<Token<'_>> for StatementKeyword {
-    fn from(token: Token) -> Self {
-        (&token).into()
-    }
-}
-
-impl From<&Token<'_>> for NodeValue {
-    fn from(token: &Token) -> Self {
-        match token.token_type {
-            TokenType::String => Self::String(token.text.to_string()),
-            TokenType::Number => Self::Number(token.text.to_string()),
-            TokenType::Date => Self::Date(token.text.to_string()),
-            _ => Self::Other(token.text.to_string()),
-        }
-    }
-}
-
-impl From<Token<'_>> for NodeValue {
-    fn from(token: Token) -> Self {
-        (&token).into()
-    }
-}
 
 #[derive(Debug)]
 pub struct ParseError {
@@ -199,10 +18,15 @@ pub struct ParseError {
     pub position: usize,
 }
 
-impl From<LexerError> for ParseError {
-    fn from(error: LexerError) -> Self {
+impl<T> From<T> for ParseError
+where
+    T: std::borrow::Borrow<LexerError>,
+{
+    fn from(error: T) -> Self {
+        let error = error.borrow();
+
         Self {
-            message: error.message,
+            message: error.message.clone(),
             position: error.position,
         }
     }
@@ -220,373 +44,98 @@ impl From<LexerError> for ParseError {
 ///
 pub fn parse(buffer: &[u8]) -> Result<RootNode, ParseError> {
     let mut tokens = yangfmt_lexing::scan_iter(buffer);
+    let mut token_stream = tokens.peekable();
 
-    Ok(RootNode {
-        children: parse_statements(&mut tokens)?,
-    })
-}
-
-enum ParseState {
-    Clean,
-
-    // keyword, keyword_comments
-    GotKeyword(StatementKeyword, Vec<String>),
-
-    // keyword, keyword_comments, value, value_comments
-    GotValue(StatementKeyword, Vec<String>, NodeValue, Vec<String>),
-
-    // keyword, keyword_comments, value, value_comments, post_comments
-    GotStatement(
-        StatementKeyword,
-        Vec<String>,
-        Option<NodeValue>,
-        Vec<String>,
-        Vec<String>,
-    ),
-
-    // keyword, keyword_comments, value, value_comments, got_plus
-    StringConcat(
-        StatementKeyword,
-        Vec<String>,
-        Vec<String>,
-        Vec<String>,
-        bool,
-    ),
-}
-
-fn parse_statements(tokens: &mut yangfmt_lexing::ScanIterator) -> Result<Vec<Node>, ParseError> {
-    let mut statements: Vec<Node> = vec![];
-    let mut state = ParseState::Clean;
-
-    let mut previous: Option<Token> = None;
+    let mut node_stack: Vec<Vec<Node>> = vec![vec![]];
+    let mut prev_token_was_line_break = false;
+    let mut prev_token_pos = 0;
 
     loop {
-        match tokens.next() {
-            Some(Ok(token)) => {
-                /// Shortcut for creating a ParseError
-                macro_rules! error {
-                    ($message:expr) => {
-                        Err(ParseError {
-                            message: $message.to_owned(),
-                            position: token.span.0,
-                        })
-                    };
-                }
+        let next_token = match token_stream.peek() {
+            Some(Ok(token)) => token,
+            Some(Err(error)) => return Err(error.into()),
+            None => break,
+        };
 
-                match state {
-                    ParseState::Clean => {
-                        // From a clean state, we expect to find a statement keyword, a comment or
-                        // a closing curly brace
-                        match token.token_type {
-                            TokenType::WhiteSpace => {
-                                // Ignore whitespace
-                            }
-                            TokenType::LineBreak => {
-                                if let Some(ref previous) = previous {
-                                    if previous.is_line_break() {
-                                        // A line break right after another line break = an empty
-                                        // line
-                                        statements.push(Node::EmptyLine(token.text.to_string()))
-                                    }
-                                }
-                            }
-                            TokenType::Comment => {
-                                statements.push(Node::Comment(token.text.to_string()))
-                            }
-                            TokenType::ClosingCurlyBrace => {
-                                return Ok(statements);
-                            }
-                            TokenType::Other => {
-                                state = ParseState::GotKeyword((&token).into(), vec![])
-                            }
-                            _ => return error!(format!("Unexpected token: {:?}", token)),
-                        }
-                    }
+        let token_pos = next_token.span.0;
+        let is_line_break = matches!(next_token.token_type, TokenType::LineBreak);
+        let is_whitespace = matches!(next_token.token_type, TokenType::WhiteSpace);
 
-                    ParseState::GotKeyword(keyword, mut keyword_comments) => {
-                        match token.token_type {
-                            TokenType::WhiteSpace => {
-                                // Ignore whitespace
-                                state = ParseState::GotKeyword(keyword, keyword_comments);
-                            }
+        let mut nodes = node_stack.last_mut().expect("Stack should never be empty");
 
-                            TokenType::LineBreak => {
-                                // Ignore line breaks between keyword and value
-                                state = ParseState::GotKeyword(keyword, keyword_comments);
-                            }
-
-                            TokenType::Comment => {
-                                keyword_comments.push(token.text.to_string());
-                                state = ParseState::GotKeyword(keyword, keyword_comments);
-                            }
-
-                            TokenType::OpenCurlyBrace => {
-                                // Recurse!
-                                statements.push(Node::Statement(Statement {
-                                    keyword,
-                                    keyword_comments,
-                                    value: None,
-                                    value_comments: vec![],
-                                    children: Some(parse_statements(tokens)?),
-                                    post_comments: vec![],
-                                }));
-
-                                state = ParseState::Clean;
-                            }
-
-                            TokenType::SemiColon => {
-                                state = ParseState::GotStatement(
-                                    keyword,
-                                    keyword_comments,
-                                    None,
-                                    vec![],
-                                    vec![],
-                                );
-                            }
-
-                            _ => {
-                                state = ParseState::GotValue(
-                                    keyword,
-                                    keyword_comments,
-                                    (&token).into(),
-                                    vec![],
-                                );
-                            }
-                        }
-                    }
-
-                    ParseState::GotValue(keyword, keyword_comments, value, mut value_comments) => {
-                        match token.token_type {
-                            TokenType::WhiteSpace => {
-                                // Ignore whitespace
-                                state = ParseState::GotValue(
-                                    keyword,
-                                    keyword_comments,
-                                    value,
-                                    value_comments,
-                                );
-                            }
-                            TokenType::LineBreak => {
-                                // Ignore line breaks between value and semicolon/curly-brace
-                                state = ParseState::GotValue(
-                                    keyword,
-                                    keyword_comments,
-                                    value,
-                                    value_comments,
-                                );
-                            }
-
-                            TokenType::Comment => {
-                                value_comments.push(token.text.to_string());
-                                state = ParseState::GotValue(
-                                    keyword,
-                                    keyword_comments,
-                                    value,
-                                    value_comments,
-                                );
-                            }
-
-                            TokenType::OpenCurlyBrace => {
-                                // Recurse!
-                                statements.push(Node::Statement(Statement {
-                                    keyword,
-                                    keyword_comments,
-                                    value: Some(value),
-                                    value_comments,
-                                    children: Some(parse_statements(tokens)?),
-                                    post_comments: vec![],
-                                }));
-
-                                state = ParseState::Clean;
-                            }
-
-                            TokenType::Plus => {
-                                let value = match value {
-                                    NodeValue::String(string) => string,
-                                    _ => {
-                                        return error!("Can only concatenate strings");
-                                    }
-                                };
-                                state = ParseState::StringConcat(
-                                    keyword,
-                                    keyword_comments,
-                                    vec![value],
-                                    value_comments,
-                                    true,
-                                );
-                            }
-
-                            TokenType::SemiColon => {
-                                state = ParseState::GotStatement(
-                                    keyword,
-                                    keyword_comments,
-                                    Some(value),
-                                    value_comments,
-                                    vec![],
-                                );
-                            }
-
-                            _ => {
-                                return error!(format!(
-                                    "Expected semicolon or block, got: {:?}",
-                                    token.text
-                                ));
-                            }
-                        }
-                    }
-
-                    ParseState::GotStatement(
-                        keyword,
-                        keyword_comments,
-                        value,
-                        value_comments,
-                        mut post_comments,
-                    ) => match token.token_type {
-                        TokenType::LineBreak => {
-                            statements.push(Node::Statement(Statement {
-                                keyword,
-                                keyword_comments,
-                                value,
-                                value_comments,
-                                children: None,
-                                post_comments,
-                            }));
-                            state = ParseState::Clean;
-                        }
-
-                        TokenType::Comment => {
-                            post_comments.push(token.text.into());
-
-                            state = ParseState::GotStatement(
-                                keyword,
-                                keyword_comments,
-                                value,
-                                value_comments,
-                                post_comments,
-                            );
-                        }
-
-                        // Ignore whitespace
-                        TokenType::WhiteSpace => {
-                            state = ParseState::GotStatement(
-                                keyword,
-                                keyword_comments,
-                                value,
-                                value_comments,
-                                post_comments,
-                            );
-                        }
-
-                        TokenType::ClosingCurlyBrace => {
-                            return Ok(statements);
-                        }
-
-                        _ => {
-                            return error!(format!(
-                                "Expected comment or line break, got: {:?}",
-                                token.text
-                            ));
-                        }
-                    },
-
-                    ParseState::StringConcat(
-                        keyword,
-                        keyword_comments,
-                        mut values,
-                        value_comments,
-                        got_plus,
-                    ) => {
-                        // Completely ignore whitespace and line breaks during a string
-                        // concatenation
-                        if token.is_whitespace() || token.is_line_break() {
-                            state = ParseState::StringConcat(
-                                keyword,
-                                keyword_comments,
-                                values,
-                                value_comments,
-                                got_plus,
-                            );
-                            continue;
-                        }
-
-                        if got_plus {
-                            // If the last symbol was a plus, the only valid token now is a string
-                            match token.token_type {
-                                TokenType::String => {
-                                    values.push(token.text.to_string());
-                                    state = ParseState::StringConcat(
-                                        keyword,
-                                        keyword_comments,
-                                        values,
-                                        value_comments,
-                                        false,
-                                    );
-                                }
-
-                                _ => return error!("Expected a string"),
-                            }
-                        } else {
-                            // If the previous token was not a plus, the valid next tokens are a
-                            // plus, a semicolon or a left curly brace
-                            match token.token_type {
-                                TokenType::Plus => {
-                                    state = ParseState::StringConcat(
-                                        keyword,
-                                        keyword_comments,
-                                        values,
-                                        value_comments,
-                                        true,
-                                    );
-                                }
-                                TokenType::SemiColon => {
-                                    statements.push(Node::Statement(Statement {
-                                        keyword,
-                                        keyword_comments: vec![],
-                                        value: Some(NodeValue::StringConcatenation(values)),
-                                        value_comments: vec![],
-                                        children: None,
-                                        post_comments: vec![],
-                                    }));
-                                    state = ParseState::Clean;
-                                }
-
-                                TokenType::OpenCurlyBrace => {
-                                    // Recurse!
-                                    statements.push(Node::Statement(Statement {
-                                        keyword,
-                                        keyword_comments,
-                                        value: Some(NodeValue::StringConcatenation(values)),
-                                        value_comments,
-                                        children: Some(parse_statements(tokens)?),
-                                        post_comments: vec![],
-                                    }));
-
-                                    state = ParseState::Clean;
-                                }
-
-                                _ => return error!("Expected '+' or ';'"),
-                            }
-                        }
-                    }
-                }
-
-                previous = Some(token);
+        match next_token.token_type {
+            TokenType::WhiteSpace => {
+                token_stream.next();
             }
 
-            Some(Err(lexer_error)) => return Err(lexer_error.into()),
-
-            // When we reach the end of the token stream, we're done and can return
-            None => match state {
-                ParseState::Clean => return Ok(statements),
-                _ => {
-                    return Err(ParseError {
-                        message: "Unexpected end of input".to_owned(),
-                        position: 0,
-                    })
+            TokenType::LineBreak => {
+                if prev_token_was_line_break {
+                    nodes.push(Node::EmptyLine(next_token.text.into()))
                 }
-            },
+
+                token_stream.next();
+            }
+
+            TokenType::Comment => {
+                nodes.push(Node::Comment(next_token.text.to_string()));
+                token_stream.next();
+            }
+
+            TokenType::ClosingCurlyBrace => {
+                let nodes = node_stack.pop().expect("Node stack can never be empty");
+
+                let prev_nodes = match node_stack.last_mut() {
+                    Some(nodes) => nodes,
+                    None => {
+                        return Err(ParseError {
+                            message: "Unexpected closing curly brace".to_string(),
+                            position: next_token.span.0,
+                        })
+                    }
+                };
+
+                match prev_nodes.last_mut() {
+                    Some(Node::Statement(statement)) => statement.children = Some(nodes),
+                    Some(_) | None => {
+                        unreachable!("Previous node when closing a block must be a statement")
+                    }
+                }
+
+                token_stream.next();
+            }
+
+            _ => {
+                let (statement, opens_block) = parse_statement(&mut token_stream)?;
+
+                nodes.push(Node::Statement(statement));
+
+                if opens_block {
+                    node_stack.push(vec![]);
+                }
+            }
         };
+
+        if is_line_break {
+            prev_token_was_line_break = true;
+        } else if !is_whitespace {
+            prev_token_was_line_break = false;
+        }
+
+        prev_token_pos = token_pos;
     }
+
+    if node_stack.len() > 1 {
+        return Err(ParseError {
+            message: "Unclosed block at end of file".to_owned(),
+            position: prev_token_pos,
+        });
+    }
+
+    Ok(RootNode {
+        children: node_stack
+            .pop()
+            .expect("Should be one node list in node stack after parsing is done"),
+    })
 }
 
 #[cfg(test)]
@@ -636,7 +185,7 @@ mod test {
 
             ext:omg-no-value;
 
-            number 12.34;
+            number 12.34; // Same-line comment
         }
         "#,
         // Expected output
@@ -655,7 +204,7 @@ mod test {
             [EmptyLine]
             (ExtensionKeyword "ext:omg-no-value")
             [EmptyLine]
-            (INVALID "number" Number)))
+            (INVALID "number" Number <post-comment>)))
         "#
     );
 
@@ -670,8 +219,7 @@ mod test {
         // Expected output
         r#"
         (root
-          (Keyword "module" <comment> <comment> Other <comment> <comment>
-            (comment))
+          (Keyword "module" <comment> <comment> Other <comment> <comment> <post-comment>)
           (comment))
         "#
     );
