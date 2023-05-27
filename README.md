@@ -1,4 +1,6 @@
 
+[![CI/CD](https://github.com/Hubro/yangfmt/actions/workflows/cicd.yaml/badge.svg)](https://github.com/Hubro/yangfmt/actions/workflows/cicd.yaml)
+
 # yangfmt
 
 YANG code formatter
