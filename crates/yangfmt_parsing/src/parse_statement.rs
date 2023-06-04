@@ -24,6 +24,16 @@ enum ParseState {
     ///
     GotValue(String, Vec<String>, NodeValue, Vec<String>),
 
+    /// State after having encountered a plus symbol in a statement value
+    ///
+    ///     pattern "foo" + "bar";
+    ///                    ^
+    ///
+    /// Statements with string concatenation values can't have value comments, since those comments
+    /// will be associated with the last string instead.
+    ///
+    GotStringConcat(String, Vec<String>, Vec<(String, Vec<String>)>, PlusState),
+
     /// State after having found a keyword and a value, but before the line break
     ///
     ///     description "foo";
@@ -73,6 +83,14 @@ impl ParseState {
             vec![],
         )
     }
+}
+
+/// Used in the string concatenation parse state to keep track of whether we're currently before or
+/// after the plus symbol
+#[derive(Debug)]
+enum PlusState {
+    BeforePlus,
+    AfterPlus,
 }
 
 /// Tries to parse a YANG statement from a peekable iterator of Tokens
@@ -188,9 +206,116 @@ pub fn parse_statement(
                         break;
                     }
 
+                    TokenType::Plus => match value {
+                        NodeValue::String(value) => {
+                            state = ParseState::GotStringConcat(
+                                keyword,
+                                keyword_comments,
+                                vec![(value, value_comments)],
+                                PlusState::AfterPlus,
+                            );
+                        }
+                        _ => {
+                            return Err(ParseError {
+                                message: "Unexpected concatenation of non-string value".to_owned(),
+                                position: token.span.0,
+                            })
+                        }
+                    },
+
                     _ => {
                         return unexpected_token_error!();
                     }
+                }
+            }
+
+            ParseState::GotStringConcat(keyword, keyword_comments, mut concat, plus_state) => {
+                match plus_state {
+                    PlusState::BeforePlus => match token.token_type {
+                        TokenType::WhiteSpace | TokenType::LineBreak => {
+                            state = ParseState::GotStringConcat(
+                                keyword,
+                                keyword_comments,
+                                concat,
+                                plus_state,
+                            );
+                        }
+                        TokenType::Plus => {
+                            state = ParseState::GotStringConcat(
+                                keyword,
+                                keyword_comments,
+                                concat,
+                                PlusState::AfterPlus,
+                            );
+                        }
+                        TokenType::Comment => {
+                            // Every comment encountered in the middle of a string concatenation is
+                            // assumed to "belong" to the previous string
+                            concat.last_mut().unwrap().1.push(token.text.to_owned());
+                            state = ParseState::GotStringConcat(
+                                keyword,
+                                keyword_comments,
+                                concat,
+                                plus_state,
+                            );
+                        }
+                        TokenType::SemiColon => {
+                            state = ParseState::GotStatement(
+                                keyword,
+                                keyword_comments,
+                                Some(NodeValue::StringConcatenation(concat)),
+                                vec![],
+                                false,
+                                vec![],
+                            );
+                            break;
+                        }
+                        TokenType::OpenCurlyBrace => {
+                            state = ParseState::GotStatement(
+                                keyword,
+                                keyword_comments,
+                                Some(NodeValue::StringConcatenation(concat)),
+                                vec![],
+                                true,
+                                vec![],
+                            );
+                            break;
+                        }
+                        _ => {
+                            return unexpected_token_error!();
+                        }
+                    },
+                    PlusState::AfterPlus => match token.token_type {
+                        TokenType::WhiteSpace | TokenType::LineBreak => {
+                            state = ParseState::GotStringConcat(
+                                keyword,
+                                keyword_comments,
+                                concat,
+                                plus_state,
+                            );
+                        }
+                        TokenType::String => {
+                            concat.push((token.text.to_owned(), vec![]));
+                            state = ParseState::GotStringConcat(
+                                keyword,
+                                keyword_comments,
+                                concat,
+                                PlusState::BeforePlus,
+                            );
+                        }
+                        TokenType::Comment => {
+                            // Every comment encountered in the middle of a string concatenation is
+                            // assumed to "belong" to the previous string
+                            concat.last_mut().unwrap().1.push(token.text.to_owned());
+                            state = ParseState::GotStringConcat(
+                                keyword,
+                                keyword_comments,
+                                concat,
+                                plus_state,
+                            );
+                        }
+                        _ => return unexpected_token_error!(),
+                    },
                 }
             }
 
@@ -296,6 +421,66 @@ mod test {
 
         assert_eq!(
             Statement::new("foo").with_value(NodeValue::Other("bar".to_string())),
+            statement,
+        );
+        assert_eq!(opens_block, false);
+    }
+
+    #[test]
+    fn parse_string_concatenation() {
+        let (statement, opens_block) = test_parse_statement!(r#"pattern "foo" + "bar";"#).unwrap();
+
+        assert_eq!(
+            Statement::new("pattern").with_value(NodeValue::StringConcatenation(vec![
+                ("\"foo\"".to_string(), vec![],),
+                ("\"bar\"".to_string(), vec![],),
+            ],),),
+            statement,
+        );
+        assert_eq!(opens_block, false);
+
+        let (statement, opens_block) = test_parse_statement!(r#"pattern "foo" + "bar" {"#).unwrap();
+
+        assert_eq!(
+            Statement::new("pattern").with_value(NodeValue::StringConcatenation(vec![
+                ("\"foo\"".to_string(), vec![],),
+                ("\"bar\"".to_string(), vec![],),
+            ],),),
+            statement,
+        );
+        assert_eq!(opens_block, true);
+    }
+
+    #[test]
+    fn parse_string_concatenation_comments() {
+        let (statement, opens_block) = test_parse_statement!(
+            r#"pattern "foo"  // Comment here
+                  + "bar"// Another comments here
+                  + "baz" /* several */ /* comments *//*here*/
+                  ; // Semicolon on separate line because why not"#
+        )
+        .unwrap();
+
+        assert_eq!(
+            Statement::new("pattern")
+                .with_value(NodeValue::StringConcatenation(vec![
+                    ("\"foo\"".to_string(), vec!["// Comment here".to_string(),],),
+                    (
+                        "\"bar\"".to_string(),
+                        vec!["// Another comments here".to_string(),],
+                    ),
+                    (
+                        "\"baz\"".to_string(),
+                        vec![
+                            "/* several */".to_string(),
+                            "/* comments */".to_string(),
+                            "/*here*/".to_string(),
+                        ],
+                    ),
+                ]))
+                .with_post_comments(vec![
+                    "// Semicolon on separate line because why not".to_string()
+                ]),
             statement,
         );
         assert_eq!(opens_block, false);

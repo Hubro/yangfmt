@@ -221,7 +221,8 @@ impl From<Token<'_>> for StatementKeyword {
 #[derive(Debug, PartialEq)]
 pub enum NodeValue {
     String(String),
-    StringConcatenation(Vec<String>),
+    /// Each string in a string concatenation can be followed by one or more comments
+    StringConcatenation(Vec<(String, Vec<String>)>),
     Number(String),
     Date(String),
 

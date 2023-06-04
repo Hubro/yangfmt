@@ -8,7 +8,7 @@ mod node;
 mod parse_statement;
 mod parsing_dbg;
 
-pub use crate::node::{Node, NodeValue, RootNode, Statement, StatementKeyword};
+pub use crate::node::{Node, NodeHelpers, NodeValue, RootNode, Statement, StatementKeyword};
 use crate::parse_statement::parse_statement;
 use yangfmt_lexing::{LexerError, Token, TokenType};
 
