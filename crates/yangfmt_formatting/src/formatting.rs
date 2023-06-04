@@ -105,30 +105,9 @@ fn process_statements(
 fn relocate_pre_block_comments(nodes: &mut [Node]) {
     for node in nodes.iter_mut() {
         if let Node::Statement(stmt) = node {
-            // Only move keyword-comments or value-comments if this statement has a block
-            if stmt.children.is_none() {
-                continue;
-            }
-
-            if stmt.value.is_some() {
-                // If the statement has a value, we want to move every value comment into the
-                // children
-                while let Some(comment) = stmt.value_comments.pop() {
-                    if let Some(ref mut children) = stmt.children {
-                        // If this is a block, move the value comments into the block children
-                        children.insert(0, Node::Comment(comment))
-                    }
-                }
-            } else {
-                // If the statement doesn't have a value, we instead want to move every keyword
-                // comment into the children
-                while let Some(comment) = stmt.keyword_comments.pop() {
-                    if let Some(ref mut children) = stmt.children {
-                        // If this is a block, move the value comments into the block children
-                        children.insert(0, Node::Comment(comment))
-                    }
-                }
-            }
+            // Move all keyword comments and value comments into the post comments
+            stmt.post_comments.append(&mut stmt.keyword_comments);
+            stmt.post_comments.append(&mut stmt.value_comments);
         }
     }
 }
@@ -234,7 +213,7 @@ fn convert_to_double_quotes(node: &mut Node) {
     }
 
     if let Some(NodeValue::StringConcatenation(strings)) = node.node_value_mut() {
-        for string in strings {
+        for (ref mut string, _) in strings {
             if !is_single_quoted(string) || contains_quote(string) {
                 continue;
             }
@@ -429,16 +408,20 @@ fn write_node<T: std::io::Write>(
                         write_simple_value!(line_pos, text);
                     }
                 }
-                NodeValue::StringConcatenation(strings) => {
+                NodeValue::StringConcatenation(concat) => {
                     let kwlen = kw_text.len();
                     let pad = if kwlen >= 2 { kwlen - 2 } else { 0 };
 
                     // The first string gets written on the same line as the keywords
-                    write!(out, " {}", strings[0])?;
+                    write!(out, " {}", concat[0].0)?;
+
+                    for comment in &concat[0].1 {
+                        write!(out, " {}", comment)?;
+                    }
 
                     // The rest get displayed on new lines, padded to align with the first string
-                    if let Some(rest) = strings.get(1..) {
-                        for ref string in rest {
+                    if let Some(rest) = concat.get(1..) {
+                        for (ref string, ref comments) in rest {
                             writeln!(out)?;
                             indent!(depth);
 
@@ -447,6 +430,10 @@ fn write_node<T: std::io::Write>(
                             }
 
                             write!(out, " + {}", string)?;
+
+                            for comment in comments {
+                                write!(out, " {}", comment)?;
+                            }
                         }
                     }
                 }
@@ -468,7 +455,13 @@ fn write_node<T: std::io::Write>(
             }
 
             if let Some(ref children) = node.children {
-                writeln!(out, " {{")?;
+                write!(out, " {{")?;
+
+                for comment in &node.post_comments {
+                    write!(out, " {}", comment)?;
+                }
+
+                writeln!(out)?;
 
                 for child in children.as_slice() {
                     write_node(out, child, config, depth + 1)?;
@@ -478,10 +471,10 @@ fn write_node<T: std::io::Write>(
                 write!(out, "}}")?;
             } else {
                 write!(out, ";")?;
-            }
 
-            for comment in &node.post_comments {
-                write!(out, " {}", comment)?;
+                for comment in &node.post_comments {
+                    write!(out, " {}", comment)?;
+                }
             }
 
             write!(out, "\n")?; // All statements implicitly end with a line break
@@ -504,7 +497,6 @@ fn write_node<T: std::io::Write>(
 mod test {
     use super::*;
     use pretty_assertions::assert_eq;
-    use std::io::Write;
 
     fn dedent(text: &str) -> String {
         let mut text = textwrap::dedent(text).trim().to_string();
@@ -548,7 +540,8 @@ mod test {
         };
 
         write_node(&mut out, module_node, &config, 0).expect("Formatting failed");
-        writeln!(out).unwrap();
+
+        let result = String::from_utf8(out).unwrap();
 
         assert_eq!(
             dedent(
@@ -566,7 +559,7 @@ mod test {
                 }
                 "#
             ),
-            String::from_utf8(out).unwrap(),
+            result,
         );
     }
 
@@ -779,14 +772,14 @@ mod test {
                         foo bar;
                     }
 
-                    test /* foo */ /* bar */ /* baz */ "foo" { /* pow */
+                    test "foo" { /* foo */ /* bar */ /* baz */ /* pow */
                         // Nobody's ever going to do this (hopefully) so let's not even bother trying
                         // to make it prettier. Just don't crash.
                     }
 
                     test "foo"; // A comment here is fine
-                    test "foo" /* This however, is not fine*/;
-                    test /* Nobody would ever do this, let's just not crash */ "foo" /* yuck */;
+                    test "foo"; /* This however, is not fine*/
+                    test "foo"; /* Nobody would ever do this, let's just not crash */ /* yuck */
 
                     //
                     // Canonical order
